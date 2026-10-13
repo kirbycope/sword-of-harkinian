@@ -40,6 +40,42 @@ from link_skeleton import DEFORM, FAST64_BONE, FAR_DL, NEAR_DL  # noqa: E402
 OBJECT = "objects/object_link_boy"
 ALT = "alt/" + OBJECT
 
+# Ocarina of Time has two player models and the game opens on the younger one, so a mod
+# that replaces only the adult shows nothing for hours of play. Child Link is a separate
+# object with the same 21 limbs in the same order, so the same geometry serves both: the
+# vertices are in bone-local space, and Kirby is the same size whichever Link he stands
+# in for. Only the display list names differ, and they are read from the extracted
+# object rather than guessed, because one of them is "Leftshoulder" with a small s.
+CHILD_OBJECT = "objects/object_link_child"
+CHILD_ALT = "alt/" + CHILD_OBJECT
+CHILD_LIMB_STEMS = [
+    "gLinkChildRootLimb", "gLinkChildWaistLimb", "gLinkChildLowerControlLimb",
+    "gLinkChildRightThighLimb", "gLinkChildRightShinLimb", "gLinkChildRightFootLimb",
+    "gLinkChildLeftThighLimb", "gLinkChildLeftShinLimb", "gLinkChildLeftFootLimb",
+    "gLinkChildUpperControlLimb", "gLinkChildHeadLimb", "gLinkChildHatLimb",
+    "gLinkChildCollarLimb", "gLinkChildLeftshoulderLimb", "gLinkChildLeftForearmLimb",
+    "gLinkChildLeftHandLimb", "gLinkChildRightshoulderLimb", "gLinkChildRightForearmLimb",
+    "gLinkChildRightHandLimb", "gLinkChildSwordAndSheathLimb", "gLinkChildTorsoLimb",
+]
+
+
+def child_display_lists(object_dir: str) -> dict[str, tuple[str | None, str | None]]:
+    """Read child Link's near and far display list names, limb by limb."""
+    import re
+
+    from link_skeleton import LIMBS
+
+    pattern = re.compile(r"^\s*(\w+),\s*//\s*[01]\s*$", re.MULTILINE)
+    out: dict[str, tuple[str | None, str | None]] = {}
+    for (limb, _p, _d, _pos, _s, _n, _f), stem in zip(LIMBS, CHILD_LIMB_STEMS):
+        path = os.path.join(object_dir, f"{stem}.inc.c")
+        if not os.path.isfile(path):
+            continue
+        names = [n for n in pattern.findall(open(path, encoding="utf8", errors="replace").read())
+                 if n != "NULL"]
+        out[limb] = (names[0] if names else None, names[1] if len(names) > 1 else None)
+    return out
+
 # Measured by tools/calibrate_axes.py against Link's own vertices, zero error.
 GAME_SCALE = 1000.0
 
@@ -98,7 +134,7 @@ class Texture:
         return bytes(header) + body + data
 
 
-def material_xml(texture_name: str, width: int, height: int) -> str:
+def material_xml(texture_name: str, obj: str, width: int, height: int) -> str:
     """The tile and combiner setup for one texture.
 
     The numbers follow from the texture size and were checked against a published mod:
@@ -117,7 +153,7 @@ def material_xml(texture_name: str, width: int, height: int) -> str:
 \t<PipeSync/>
 \t<SetTextureLUT Mode="G_TT_NONE"/>
 \t<Texture S="65535" T="65535" Level="0" Tile="0" On="1"/>
-\t<SetTextureImage Path="{OBJECT}/{texture_name}" Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Width="1"/>
+\t<SetTextureImage Path="{obj}/{texture_name}" Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Width="1"/>
 \t<SetTile Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Line="0" TMem="0" Tile="7" Palette="0" Cms0="G_TX_WRAP" Cms1="G_TX_NOMIRROR" Cmt0="G_TX_WRAP" Cmt1="G_TX_NOMIRROR" MaskS="0" ShiftS="0" MaskT="0" ShiftT="0"/>
 \t<LoadSync/>
 \t<LoadBlock Tile="7" Uls="0" Ult="0" Lrs="{texels - 1}" Dxt="{dxt}" />
@@ -230,6 +266,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--blend", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--child-assets",
+                        default="decomp/extracted/ntsc-1.2/assets/objects/object_link_child")
     args = parser.parse_args(argv)
 
     bpy.ops.wm.open_mainfile(filepath=os.path.abspath(args.blend))
@@ -306,6 +344,9 @@ def main() -> None:
         builders[limb].add(tri.material_index, corners)
 
     files: dict[str, str | bytes] = {}
+    child_files: dict[str, str | bytes] = {}
+    child_lists = child_display_lists(os.path.abspath(args.child_assets))
+    print(f"child display lists found for {len(child_lists)} limb(s)")
     total_tris = 0
     print("\nper limb:")
     for limb in DEFORM:
@@ -317,14 +358,26 @@ def main() -> None:
         if far:
             files[far] = dl_xml
         files.update(vertex_files)
-        print(f"  {limb:<15} {count:>4} tris -> {near}")
+
+        child_near, child_far = child_lists.get(limb, (None, None))
+        child_xml = dl_xml.replace(OBJECT + "/", CHILD_OBJECT + "/")
+        for name in (child_near, child_far):
+            if name:
+                child_files[name] = child_xml
+        for name, payload in vertex_files.items():
+            child_files[name] = payload.replace(OBJECT + "/", CHILD_OBJECT + "/")
+
+        print(f"  {limb:<15} {count:>4} tris -> {near}"
+              + (f" / {child_near}" if child_near else "  (no child list)"))
 
     for index, texture in textures.items():
         files[texture.name] = texture.resource()
+        child_files[texture.name] = texture.resource()
     for index, name in material_names.items():
-        files[name] = material_xml(textures[index].name if index in textures
-                                   else next(iter(textures.values())).name,
-                                   TEXTURE_SIZE, TEXTURE_SIZE)
+        texture_name = (textures[index].name if index in textures
+                        else next(iter(textures.values())).name)
+        files[name] = material_xml(texture_name, OBJECT, TEXTURE_SIZE, TEXTURE_SIZE)
+        child_files[name] = material_xml(texture_name, CHILD_OBJECT, TEXTURE_SIZE, TEXTURE_SIZE)
 
     out = os.path.abspath(args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -332,10 +385,14 @@ def main() -> None:
         for name, payload in sorted(files.items()):
             data = payload.encode("utf8") if isinstance(payload, str) else payload
             archive.writestr(f"{ALT}/{name}", data)
+        for name, payload in sorted(child_files.items()):
+            data = payload.encode("utf8") if isinstance(payload, str) else payload
+            archive.writestr(f"{CHILD_ALT}/{name}", data)
 
     size = os.path.getsize(out)
-    print(f"\n{total_tris} triangles placed, {skipped} spanning two limbs were dropped")
-    print(f"wrote {len(files)} resources to {out} ({size / 1024:.0f} KB)")
+    print(f"\n{total_tris} triangles placed, {skipped} with no limb were dropped")
+    print(f"wrote {len(files)} adult and {len(child_files)} child resources "
+          f"to {out} ({size / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":
