@@ -499,6 +499,86 @@ def classify_body_parts(parts: list[bpy.types.Object]) -> dict[str, bpy.types.Ob
     return {"feet": feet, "arms": rest[0], "ball": rest[1]}
 
 
+def drop_boomerang(obj: bpy.types.Object) -> int:
+    """Delete the boomerang Kirby carries as his Link copy move. Returns faces kept."""
+    doomed_slots = {
+        i for i, m in enumerate(obj.data.materials) if uses_any(m, BOOMERANG_TEXTURES)
+    }
+    if not doomed_slots:
+        return len(obj.data.polygons)
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index in doomed_slots],
+                     context="FACES")
+    kept = len(bm.faces)
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+    return kept
+
+
+def assemble_lod(assets_root: str, verbose: bool = True) -> bpy.types.Object:
+    """Build the far-distance Kirby from the Smash 64 model, whole.
+
+    Link is drawn from a lower-detail skeleton once he is far from the camera, and this
+    is what an LOD is for: Nintendo's own Smash 64 Kirby is 272 triangles against the
+    Kirby 64 one's 706, and it already wears Link's cap, correctly placed, with no
+    grafting needed. Only the boomerang comes off, since the near model carries a sword.
+
+    Roles are tagged from the textures where the model separates cleanly, and from
+    position for the arms, which share the skin texture with the body.
+    """
+    path = os.path.join(os.path.abspath(assets_root), "ssb64", "extracted", "kirbylink.obj")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"missing {path}")
+
+    kirby = join(import_obj(path), "SwordKirbyLOD")
+    kept = drop_boomerang(kirby)
+    if verbose:
+        tris = sum(len(p.vertices) - 2 for p in kirby.data.polygons)
+        print(f"  far    {len(kirby.data.vertices):>4} verts  {tris:>4} tris   "
+              f"Smash 64, boomerang removed ({kept} faces kept)")
+
+    feet_slots = {i for i, m in enumerate(kirby.data.materials) if uses_any(m, ("feet",))}
+    cap_slots = {i for i, m in enumerate(kirby.data.materials) if uses_any(m, CAP_TEXTURES)}
+
+    verts = [kirby.matrix_world @ v.co for v in kirby.data.vertices]
+    lo_x = min(v.x for v in verts)
+    hi_x = max(v.x for v in verts)
+    lo_z = min(v.z for v in verts)
+    hi_z = max(v.z for v in verts)
+    width = max(hi_x - lo_x, 1e-9)
+    height = max(hi_z - lo_z, 1e-9)
+
+    role_of: dict[int, str] = {}
+    for poly in kirby.data.polygons:
+        if poly.material_index in feet_slots:
+            role = "feet"
+        elif poly.material_index in cap_slots:
+            role = "cap"
+        else:
+            centre = Vector((0.0, 0.0, 0.0))
+            for vi in poly.vertices:
+                centre += verts[vi]
+            centre /= len(poly.vertices)
+            fx = (centre.x - lo_x) / width
+            fz = (centre.z - lo_z) / height
+            # The mittens share the skin texture with the body, so they are found by
+            # reaching further out than the ball does, above the legs.
+            role = "arms" if (fx > 0.84 or fx < 0.16) and fz > 0.30 else "ball"
+        for vi in poly.vertices:
+            role_of[vi] = role
+
+    for role in ROLES:
+        members = [i for i, r in role_of.items() if r == role]
+        if not members:
+            continue
+        group = kirby.vertex_groups.new(name=ROLE_PREFIX + role)
+        group.add(members, 1.0, "REPLACE")
+    return kirby
+
+
 def assemble(assets_root: str, verbose: bool = True) -> bpy.types.Object:
     """Build the character into the current scene, without rigging it.
 

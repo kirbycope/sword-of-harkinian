@@ -31,3 +31,11 @@ __pycache__/
 # Ripped game assets: source material, never committed.
 /.assets/
 /.playwright-mcp/
+
+# Ship of Harkinian runtime files, if it is ever launched from here.
+/oot.o2r
+/shipofharkinian.json
+/SoHTimeSplitData.json
+/Save/
+/logs/
+/imgui.ini

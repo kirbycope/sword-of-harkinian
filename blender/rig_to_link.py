@@ -35,7 +35,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from build_sword_kirby import assemble, roles_of, world_bounds  # noqa: E402
+from build_sword_kirby import assemble, assemble_lod, roles_of, world_bounds  # noqa: E402
 from link_skeleton import (  # noqa: E402
     DEFORM,
     FAST64_BONE,
@@ -117,6 +117,11 @@ def fit_to_skeleton(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, V
     link_lo_z = min(p.z for p in points)
     link_hi_z = max(p.z for p in points)
     link_height = link_hi_z - link_lo_z
+    # Centre on the skeleton, not on the world origin. Fast64 parks the far-distance
+    # armature ten units to the side so the two rigs do not overlap in the viewport, and
+    # a mesh centred on the origin would sit that far from the bones meant to drive it.
+    link_centre_x = (min(p.x for p in points) + max(p.x for p in points)) * 0.5
+    link_centre_y = (min(p.y for p in points) + max(p.y for p in points)) * 0.5
 
     lo, hi = world_bounds(kirby)
     scale = (link_height * HEIGHT_OF_LINK) / max(hi.z - lo.z, 1e-9)
@@ -126,8 +131,8 @@ def fit_to_skeleton(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, V
     lo, hi = world_bounds(kirby)
     centre = (lo + hi) * 0.5
     kirby.location = (
-        kirby.location.x - centre.x,
-        kirby.location.y - centre.y,
+        kirby.location.x + (link_centre_x - centre.x),
+        kirby.location.y + (link_centre_y - centre.y),
         kirby.location.z + (link_lo_z - lo.z),
     )
     bpy.ops.object.select_all(action="DESELECT")
@@ -305,8 +310,35 @@ def main() -> None:
         print(f"FAIL: limbs still empty: {missing}")
         sys.exit(1)
     tris = sum(len(p.vertices) - 2 for p in kirby.data.polygons)
-    print(f"\nOK: {len(kirby.data.vertices)} verts, {tris} tris, "
+    print(f"\nnear mesh: {len(kirby.data.vertices)} verts, {tris} tris, "
           f"all {len(DEFORM)} deformable limbs covered")
+
+    # The far-distance skeleton gets the Smash 64 Kirby, which is less than half the
+    # triangles and already wears the cap.
+    lod_armature = getattr(getattr(armature, "ootSkeleton", None), "LOD", None)
+    if lod_armature is None:
+        print("\nno far skeleton on this rig, skipping the LOD mesh")
+    else:
+        print("\nassembling the far-distance Kirby:")
+        lod = assemble_lod(os.path.abspath(args.assets))
+        lod_segments = bone_segments(lod_armature)
+        lod_scale = fit_to_skeleton(lod, lod_segments)
+        lod_counts = weight(lod, lod_segments)
+        lod_filled = fill_empty(lod, lod_counts, lod_segments)
+
+        lod.parent = lod_armature
+        lod_mod = lod.modifiers.new(name="Armature", type="ARMATURE")
+        lod_mod.object = lod_armature
+
+        lod_tris = sum(len(p.vertices) - 2 for p in lod.data.polygons)
+        print(f"  scaled by {lod_scale:.3f}; {len(lod.data.vertices)} verts, "
+              f"{lod_tris} tris, {len(lod_filled)} limb(s) filled")
+        empty = [n for n in DEFORM if lod_counts.get(n, 0) == 0 and n not in lod_filled]
+        if empty:
+            print(f"FAIL: far mesh has empty limbs: {empty}")
+            sys.exit(1)
+        print(f"  far mesh covers all {len(DEFORM)} deformable limbs, "
+              f"{100 * lod_tris // max(tris, 1)}% of the near mesh's triangles")
 
     if args.out:
         path = os.path.abspath(args.out)
