@@ -10,18 +10,30 @@ mostly a matter of replacing the ball underneath.
 
 ## Status
 
-The model is built and checked. The export path is wired up to the point where it needs
-assets extracted from a retail ROM, which is running now.
+The model is built and checked, and Link's assets are extracted. What remains is the
+Fast64 round trip and packing.
 
 | Piece | State |
 | --- | --- |
-| Link's limb table, from the decompilation | Done, and self-checking |
+| Link's limb table, derived from extracted game data | Done, and self-checking |
 | Sword Kirby mesh, rigged across all 21 limbs | Done, 642 vertices, 1192 triangles |
 | Preview renders, four angles plus a limb-ownership view | Done, in `docs/preview` |
-| Asset extraction from the ROM | Running |
-| Fast64 skeleton import and export | Blocked on the extraction |
-| Packing the mod as an o2r | Not started |
+| Asset extraction from the ROM | Done, `decomp/extracted/ntsc-1.2` |
+| Fast64 skeleton import, and binding Kirby to the real rig | Next |
+| Export, and packing the mod as an o2r | Not started |
 | Running it in Ship of Harkinian 9.3.0 | Not started |
+
+### Extracting the assets
+
+The extractor is mostly Python, but it loads `tools/assets/n64texconv`, a C shared
+library, so it needs a compiler. On a machine without one, build and extract elsewhere
+and copy `extracted/ntsc-1.2` back. On macOS the shared library may fail to link against
+a default SDK newer than the installed command line tools; pass a matching one:
+
+```bash
+clang -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk \
+  -shared -o libn64texconv.so $(find build -name '*.o') -lz -lm
+```
 
 ## What you need
 
