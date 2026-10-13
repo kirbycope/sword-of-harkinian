@@ -10,18 +10,38 @@ mostly a matter of replacing the ball underneath.
 
 ## Status
 
-The model is built and checked, and Link's assets are extracted. What remains is the
-Fast64 round trip and packing.
+The character is assembled from real N64 models and rigged. What remains is the Fast64
+round trip and packing.
 
 | Piece | State |
 | --- | --- |
 | Link's limb table, derived from extracted game data | Done, and self-checking |
-| Sword Kirby mesh, rigged across all 21 limbs | Done, 642 vertices, 1192 triangles |
+| Sword Kirby, assembled and rigged across all 21 limbs | Done, 418 vertices, 598 triangles |
 | Preview renders, four angles plus a limb-ownership view | Done, in `docs/preview` |
 | Asset extraction from the ROM | Done, `decomp/extracted/ntsc-1.2` |
 | Fast64 skeleton import, and binding Kirby to the real rig | Next |
 | Export, and packing the mod as an o2r | Not started |
 | Running it in Ship of Harkinian 9.3.0 | Not started |
+
+## Where Kirby comes from
+
+No single game ships this character, so he is assembled from three N64 models. None of
+them is committed here; `blender/build_sword_kirby.py` rebuilds him from your own copies,
+which you can fetch from The Models Resource.
+
+| Part | Source | Triangles | Why |
+| --- | --- | --- | --- |
+| Body, face, feet | Kirby 64: The Crystal Shards, asset 292078 | 516 | Roughly double the resolution of the Smash 64 Kirby, with a far better face |
+| Link's cap | Super Smash Bros., asset 283456 | 48 | The only N64 Kirby wearing it, cut out by its green cloth and gold fringe textures |
+| Sword | Kirby 64 Burn-Cutter Sword, asset 533304 | 34 | Smash 64's Link Kirby carries a boomerang, wrong for a character replacing the Master Sword |
+
+That totals 598 triangles against Adult Link's budget of roughly 1400, and every texture
+is already 64x64 or smaller, inside the cap Fast64's guide sets.
+
+An earlier version of this model was generated from spheres and cones by script. It is
+gone: a flat-shaded ball with 3D lumps for eyes reads as a pink blob, and the ripped
+models carry proper face textures, which is also what the format wants, since Link's eyes
+and mouth are flipbook textures.
 
 ### Extracting the assets
 

@@ -27,3 +27,7 @@ baserom*/
 # Python
 __pycache__/
 *.pyc
+
+# Ripped game assets: source material, never committed.
+/.assets/
+/.playwright-mcp/

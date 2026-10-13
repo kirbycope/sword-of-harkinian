@@ -126,21 +126,37 @@ def _recolour_by_limb(mesh_obj: bpy.types.Object) -> None:
             poly.material_index = slot_of[winner]
 
 
-def render_sheet(out_dir: str, limb_view: bool) -> list[str]:
+def _load_blend(path: str) -> bpy.types.Object:
+    """Open a saved file and return its Kirby mesh, for previewing an imported model."""
+    bpy.ops.wm.open_mainfile(filepath=os.path.abspath(path))
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    if not meshes:
+        raise ValueError(f"{path} has no mesh")
+    for arm in [o for o in bpy.data.objects if o.type == "ARMATURE"]:
+        arm.hide_render = True
+    return max(meshes, key=lambda o: len(o.data.vertices))
+
+
+def render_sheet(out_dir: str, limb_view: bool, blend: str | None = None,
+                 prefix: str = "kirby") -> list[str]:
     written: list[str] = []
     for name, azimuth, elevation in ANGLES:
-        _clear()
-        _scene()
-        arm = build_reference_armature()
-        mesh, owner = build_kirby_mesh()
-        bind(mesh, arm, owner)
-        arm.hide_render = True
+        if blend:
+            mesh = _load_blend(blend)
+            _scene()
+        else:
+            _clear()
+            _scene()
+            arm = build_reference_armature()
+            mesh, owner = build_kirby_mesh()
+            bind(mesh, arm, owner)
+            arm.hide_render = True
         if limb_view:
             _recolour_by_limb(mesh)
         _camera(azimuth, elevation, 2.6)
 
         suffix = "limbs" if limb_view else "shaded"
-        path = os.path.join(os.path.abspath(out_dir), f"kirby_{name}_{suffix}.png")
+        path = os.path.join(os.path.abspath(out_dir), f"{prefix}_{name}_{suffix}.png")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         bpy.context.scene.render.filepath = path
         bpy.ops.render.render(write_still=True)
@@ -152,9 +168,11 @@ def render_sheet(out_dir: str, limb_view: bool) -> list[str]:
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     out_dir = argv[argv.index("--out") + 1] if "--out" in argv else "docs/preview"
+    blend = argv[argv.index("--blend") + 1] if "--blend" in argv else None
+    prefix = argv[argv.index("--prefix") + 1] if "--prefix" in argv else "kirby"
 
-    written = render_sheet(out_dir, limb_view=False)
-    written += render_sheet(out_dir, limb_view=True)
+    written = render_sheet(out_dir, limb_view=False, blend=blend, prefix=prefix)
+    written += render_sheet(out_dir, limb_view=True, blend=blend, prefix=prefix)
     print(f"=== {len(written)} previews written to {os.path.abspath(out_dir)} ===")
 
 
