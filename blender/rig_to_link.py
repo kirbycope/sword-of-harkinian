@@ -131,10 +131,18 @@ def nearest_limb(p: Vector, segments: dict[str, tuple[Vector, Vector]],
     return best
 
 
-# Which bone each appendage should sit on, and how it splits left from right.
+# Which bone each appendage sits on, how it splits left from right, and how far it then
+# drops as a share of body height.
+#
+# The drop exists because Link's hand bones hang at humanoid height, around sixty percent
+# of the way up him, while Kirby stands at well under that. Put his mittens exactly on
+# those bones and they land beside his crown, where they read as ears rather than arms.
+# Dropping them trades a little animation accuracy for a silhouette that makes sense: the
+# residual offset is a fraction of the 1.72 units that threw them about in the first
+# place, so the swing it reintroduces is small.
 APPENDAGES = (
-    ("arms", "LeftHand", "RightHand"),
-    ("feet", "LeftFoot", "RightFoot"),
+    ("arms", "LeftHand", "RightHand", 0.26),
+    ("feet", "LeftFoot", "RightFoot", 0.0),
 )
 
 
@@ -153,7 +161,10 @@ def seat_appendages(kirby: bpy.types.Object,
     roles = roles_of(kirby)
     moved: list[str] = []
 
-    for role, left_limb, right_limb in APPENDAGES:
+    lo, hi = world_bounds(kirby)
+    body_height = max(hi.z - lo.z, 1e-9)
+
+    for role, left_limb, right_limb, drop in APPENDAGES:
         members = roles.get(role) or set()
         if not members:
             continue
@@ -174,10 +185,12 @@ def seat_appendages(kirby: bpy.types.Object,
             centroid /= len(group)
 
             target = (seg[0] + seg[1]) * 0.5
+            target.z -= body_height * drop
             shift = target - centroid
             for i in group:
                 kirby.data.vertices[i].co += shift
-            moved.append(f"{limb} by {shift.length:.2f}")
+            moved.append(f"{limb} by {shift.length:.2f}"
+                         + (f", dropped {body_height * drop:.2f}" if drop else ""))
 
     kirby.data.update()
     return moved
