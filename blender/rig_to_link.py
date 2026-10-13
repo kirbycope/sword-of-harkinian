@@ -131,6 +131,58 @@ def nearest_limb(p: Vector, segments: dict[str, tuple[Vector, Vector]],
     return best
 
 
+# Which bone each appendage should sit on, and how it splits left from right.
+APPENDAGES = (
+    ("arms", "LeftHand", "RightHand"),
+    ("feet", "LeftFoot", "RightFoot"),
+)
+
+
+def seat_appendages(kirby: bpy.types.Object,
+                    segments: dict[str, tuple[Vector, Vector]]) -> list[str]:
+    """Move the mittens and feet onto the bones that drive them.
+
+    A part that follows a bone has to sit on that bone, or every rotation of the limb
+    swings it through an arc the size of the offset. Kirby's mittens sat against his
+    body while Link's hand bones are further out and lower, so the arms in his idle
+    animation threw the mittens up beside his head. The same applies to the feet.
+
+    Positions are corrected here rather than when the model is assembled, because this
+    is the first point at which the real bones are known.
+    """
+    roles = roles_of(kirby)
+    moved: list[str] = []
+
+    for role, left_limb, right_limb in APPENDAGES:
+        members = roles.get(role) or set()
+        if not members:
+            continue
+        points = {i: kirby.matrix_world @ kirby.data.vertices[i].co for i in members}
+        centre_x = sum(p.x for p in points.values()) / len(points)
+
+        for limb, side in ((left_limb, 1.0), (right_limb, -1.0)):
+            seg = segments.get(limb)
+            if seg is None:
+                continue
+            group = [i for i, p in points.items() if (p.x - centre_x) * side > 0.0]
+            if not group:
+                continue
+
+            centroid = Vector((0.0, 0.0, 0.0))
+            for i in group:
+                centroid += points[i]
+            centroid /= len(group)
+
+            target = (seg[0] + seg[1]) * 0.5
+            shift = target - centroid
+            for i in group:
+                kirby.data.vertices[i].co += shift
+            moved.append(f"{limb} by {shift.length:.2f}")
+
+    kirby.data.update()
+    return moved
+
+
 def fit_to_skeleton(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, Vector]]) -> float:
     """Scale Kirby against the real skeleton and stand him on Link's feet."""
     points = [v for seg in segments.values() for v in seg]
@@ -323,6 +375,9 @@ def main() -> None:
     print(f"\nscaled Kirby by {scale:.3f}: {hi.x - lo.x:.2f} wide, {hi.z - lo.z:.2f} tall, "
           f"against Link's {max(link_z) - min(link_z):.2f}")
 
+    for note in seat_appendages(kirby, segments):
+        print(f"  seated {note}")
+
     counts = weight(kirby, segments)
     filled = fill_empty(kirby, counts, segments)
 
@@ -353,6 +408,7 @@ def main() -> None:
         lod = assemble_lod(os.path.abspath(args.assets))
         lod_segments = bone_segments(lod_armature)
         lod_scale = fit_to_skeleton(lod, lod_segments)
+        seat_appendages(lod, lod_segments)
         lod_counts = weight(lod, lod_segments)
         lod_filled = fill_empty(lod, lod_counts, lod_segments)
 
