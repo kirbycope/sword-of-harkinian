@@ -207,4 +207,13 @@ rigging. Each pose checks one thing that would be wrong in the game:
 | `decomp/` | The decompilation. Ignored by git, never committed. |
 | `.toolchain/` | Staged third-party tools. Ignored by git. |
 
+## Doing this again, for something else
+
+What was learned here is written up as a reusable skill at
+`C:\GitHub\.claude\skills\ship-of-harkinian-models`, with working copies of the
+generator, the axis calibration, the limb parser and a PowerShell driver for the game.
+It carries the parts that cost the most to find: that a model mod needs no ROM, what the
+archive actually contains, which facts have to be derived rather than guessed, and the
+N64 limits a model has to fit.
+
 Third-party tools and references are credited in [CREDITS.md](CREDITS.md).
