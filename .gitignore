@@ -39,3 +39,29 @@ __pycache__/
 /Save/
 /logs/
 /imgui.ini
+
+# Upstream decompilations of the source games, read for their sound tables only.
+# Never committed, same rule as the Ocarina of Time decompilation above.
+/decomp-ssb64/
+/decomp-k64/
+
+# Raw capture frames from driving the game. The curated comparisons beside them are
+# committed; these are the hundreds of individual frames they were cut from.
+/docs/preview/walk/
+/docs/preview/walk7/
+/docs/preview/walk8/
+/docs/preview/walk12/
+/docs/preview/blink/
+/docs/preview/final/
+/docs/preview/notch/
+/docs/preview/intro/
+/docs/preview/intro2/
+/docs/preview/v6_*.png
+/docs/preview/v7_*.png
+/docs/preview/v9_*.png
+/docs/preview/v1[012]_*.png
+
+# Audio decoded out of the source ROMs. Same rule as the ripped models: the scripts that
+# rebuild it are committed, the publisher's sound is not.
+/docs/sounds/
+/build/

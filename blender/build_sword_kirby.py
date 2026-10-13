@@ -148,22 +148,150 @@ def donor_head_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     return lo, hi
 
 
+# Loose pieces smaller than this share of the cap's biggest shell are passengers rather
+# than part of the hat. Measured on the Smash 64 model, the cap is three shells that all
+# touch, so distance tells them apart from nothing: 25 faces of green cloth, 21 of gold
+# band, and 2 of blond hair. As a share of the largest that is 100, 84 and 8 percent, so
+# anything between a tenth and four fifths separates the hat from its passenger, and a
+# quarter sits in the middle of that gap.
+SHELL_FLOOR = 0.25
+
+
+def shells_of(bm: bmesh.types.BMesh) -> list[list]:
+    """Every group of faces joined edge to edge, biggest first."""
+    seen: set[int] = set()
+    out: list[list] = []
+    for seed in bm.faces:
+        if seed.index in seen:
+            continue
+        shell, stack = [], [seed]
+        seen.add(seed.index)
+        while stack:
+            face = stack.pop()
+            shell.append(face)
+            for edge in face.edges:
+                for other in edge.link_faces:
+                    if other.index not in seen:
+                        seen.add(other.index)
+                        stack.append(other)
+        out.append(shell)
+    out.sort(key=len, reverse=True)
+    return out
+
+
+# A hat is open underneath, and that opening is a long loop of edges all the way round
+# its rim. A short loop is not an opening, it is a gap. On the Smash 64 cap the gap is a
+# four edge hole where the crown meets the tail, and the model fills it with two
+# triangles of blond hair painted from the cap's own image. Those two triangles are wider
+# than the hole, so on a head of a different size their outer corners stick out past the
+# cap as a pair of pale lumps, and dropping them opens the hole and lets the head show
+# through the crown. Filling the hole with the cap's own cloth settles both.
+NOTCH_EDGES = 4
+
+
+def close_notch(bm: bmesh.types.BMesh, obj: bpy.types.Object) -> int:
+    """Fill the cap's short boundary loops with cloth, leaving its rim open."""
+    from collections import Counter
+
+    bm.edges.ensure_lookup_table()
+    uv_layer = bm.loops.layers.uv.active
+    seen_faces = Counter()
+    for face in bm.faces:
+        for edge in face.edges:
+            seen_faces[edge.index] += 1
+    boundary = [e for e in bm.edges if seen_faces.get(e.index, 0) == 1]
+    if not boundary:
+        return 0
+
+    adjacency: dict[int, list] = {}
+    for edge in boundary:
+        for vert in edge.verts:
+            adjacency.setdefault(vert.index, []).append(edge)
+
+    # What the cap's cloth is textured with, so the fill matches rather than guessing.
+    known_uv: dict[int, tuple[float, float]] = {}
+    if uv_layer is not None:
+        for face in bm.faces:
+            for loop in face.loops:
+                known_uv.setdefault(loop.vert.index, tuple(loop[uv_layer].uv))
+
+    visited, filled = set(), 0
+    for edge in boundary:
+        if edge.index in visited:
+            continue
+        loop_edges, stack = [], [edge]
+        visited.add(edge.index)
+        while stack:
+            current = stack.pop()
+            loop_edges.append(current)
+            for vert in current.verts:
+                for other in adjacency.get(vert.index, []):
+                    if other.index not in visited:
+                        visited.add(other.index)
+                        stack.append(other)
+        if len(loop_edges) > NOTCH_EDGES:
+            continue                      # the hat's own rim, which stays open
+        try:
+            result = bmesh.ops.holes_fill(bm, edges=loop_edges, sides=len(loop_edges))
+        except (TypeError, RuntimeError):
+            continue
+        made = result.get("faces") or []
+        for face in made:
+            face.material_index = loop_edges[0].link_faces[0].material_index
+            face.smooth = loop_edges[0].link_faces[0].smooth
+            if uv_layer is not None:
+                for loop in face.loops:
+                    uv = known_uv.get(loop.vert.index)
+                    if uv is not None:
+                        loop[uv_layer].uv = uv
+        filled += len(made)
+
+    if filled:
+        bm.faces.ensure_lookup_table()
+        bm.faces.index_update()
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    return filled
+
+
 def keep_only_cap(obj: bpy.types.Object) -> int:
-    """Delete every face of the Smash 64 model that is not part of Link's cap."""
+    """Delete every face of the Smash 64 model that is not part of Link's cap.
+
+    Matching on the cap's textures is not quite enough. That model is Kirby wearing
+    Link's costume, and the blond hair tufts under the cap are painted from the same
+    image as the cap cloth, so a texture match keeps them. They are two triangles, they
+    are not joined to the cap, and once the cap is moved onto a head of a different size
+    they hang in the air either side of it like ears, which is exactly what they looked
+    like in the game.
+    """
     cap_slots = {i for i, m in enumerate(obj.data.materials) if uses_cap_texture(m)}
     if not cap_slots:
         raise ValueError("no cap materials found; the green cloth texture did not match")
 
     bm = bmesh.new()
     bm.from_mesh(obj.data)
-    doomed = [f for f in bm.faces if f.material_index not in cap_slots]
-    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index not in cap_slots],
+                     context="FACES")
+    bm.faces.ensure_lookup_table()
+    bm.faces.index_update()
+
+    shells = shells_of(bm)
+    if shells:
+        floor = max(1, int(len(shells[0]) * SHELL_FLOOR))
+        keep = {f.index for sh in shells if len(sh) >= floor for f in sh}
+        loose = [f for f in bm.faces if f.index not in keep]
+        if loose:
+            sizes = ", ".join(str(len(sh)) for sh in shells)
+            print(f"    cap shells: {sizes} faces; dropped {len(loose)} "
+                  f"below the {floor}-face floor")
+            bmesh.ops.delete(bm, geom=loose, context="FACES")
+
+    filled = close_notch(bm, obj)
+    if filled:
+        print(f"    closed {filled} hole(s) the dropped pieces had been spanning")
+
     kept = len(bm.faces)
     bm.to_mesh(obj.data)
     bm.free()
-
-    for v in [v for v in obj.data.vertices]:
-        pass
     obj.data.update()
     return kept
 
@@ -187,11 +315,19 @@ def place_cap(
     """
     donor_width = max(donor_hi.x - donor_lo.x, 1e-6)
     body_width = body_hi.x - body_lo.x
+    # Two dials, both set by looking at him in the game rather than derived from
+    # anything. Matching the two heads' widths exactly puts the cap a shade too large on
+    # a ball that is rounder than the donor's, and sitting it on the donor's own fore and
+    # aft fraction leaves it reading as pushed back, because this Kirby's face sits
+    # further forward on a deeper head. CAP_FORWARD is a share of the body's depth and
+    # positive moves the cap toward his face.
+    CAP_SCALE = 0.92
+    CAP_FORWARD = 0.07
     # Match the two heads directly. Both are Kirbys of the same build, so the cap that
     # fitted one fits the other at the ratio of their widths, with no fudge factor: the
     # reference has the cap overhanging the head slightly at the sides, and shrinking it
     # to perch on top was an artefact of measuring against the wrong box.
-    scale = body_width / donor_width
+    scale = (body_width / donor_width) * CAP_SCALE
     lift = 0.0
 
     # Read the cap's own box before scaling, so the anchors below are in donor units.
@@ -213,6 +349,12 @@ def place_cap(
         extent = donor_size[axis]
         fraction = ((cap_centre[axis] / scale) - donor_lo[axis]) / extent if extent else 0.5
         target[axis] = body_lo[axis] + fraction * body_size[axis]
+
+    # Then nudge it toward his face. Which way that is gets measured, not assumed: the
+    # cap's tail is the part that reaches furthest past the ball, and the tail hangs down
+    # the back, so the front is the other way.
+    behind = 1.0 if (cap_hi.y - body_hi.y) > (body_lo.y - cap_lo.y) else -1.0
+    target.y -= behind * CAP_FORWARD * (body_size.y)
 
     # Vertically, anchor the crown rather than the centre. The cap's box is dominated by
     # the long tail hanging down the back, so matching box centres drags the whole cap
@@ -511,6 +653,10 @@ def drop_boomerang(obj: bpy.types.Object) -> int:
     bm.from_mesh(obj.data)
     bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index in doomed_slots],
                      context="FACES")
+    filled = close_notch(bm, obj)
+    if filled:
+        print(f"    closed {filled} hole(s) the dropped pieces had been spanning")
+
     kept = len(bm.faces)
     bm.to_mesh(obj.data)
     bm.free()

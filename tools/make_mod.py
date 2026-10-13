@@ -41,6 +41,34 @@ from link_skeleton import DEFORM, FAR_DL, NEAR_DL, limb_of_bone  # noqa: E402
 # sword and scabbard the game gives Link still appear; Kirby carries none of his own.
 LEAVE_ALONE = ("Sheath",)
 
+# An empty display list is legal, and it is how a limb this character does not have is
+# hidden: the vanilla limb then draws nothing at all.
+EMPTY_DL = '<DisplayList Version="0">\n\t<EndDisplayList/>\n</DisplayList>\n'
+
+# The hand limb's own display list is not the only thing drawn at the hand bone, and
+# this is the trap that leaves two skin-coloured lumps hanging in the air beside a short
+# character's head. The player code picks a hand list by what Link is holding, from
+# tables in z_player_lib.c, and an empty hand walking around uses the *fist* lists, not
+# the hand ones. Replacing only gLinkChildLeftHandNearDL therefore hides nothing during
+# ordinary play: gLinkChildLeftFistNearDL draws vanilla Link's fist instead, up at the
+# hand bone, which on a character as short as Kirby is level with the top of his cap.
+#
+# So every list that draws a bare hand is emptied too. The ones that draw a hand holding
+# something are deliberately left alone, because the item's own geometry lives inside
+# them, and blanking those would take the sword, shield, slingshot and ocarina with it.
+HIDE_HANDS = {
+    "adult": (
+        "gLinkAdultLeftHandClosedNearDL", "gLinkAdultLeftHandClosedFarDL",
+        "gLinkAdultRightHandClosedNearDL", "gLinkAdultRightHandClosedFarDL",
+        "gLinkAdultLeftHandOutNearDL", "gLinkAdultRightHandOutNearDL",
+    ),
+    "child": (
+        "gLinkChildLeftFistNearDL", "gLinkChildLeftFistFarDL",
+        "gLinkChildRightHandClosedNearDL", "gLinkChildRightHandClosedFarDL",
+        "gLinkChildLeftHandUpNearDL", "gLinkChildLeftHandUpFarDL",
+    ),
+}
+
 OBJECT = "objects/object_link_boy"
 ALT = "alt/" + OBJECT
 
@@ -108,13 +136,39 @@ def to_signed_byte(value: float) -> int:
 class Texture:
     """One image, resized and packed into the 16-bit format the game wants."""
 
-    def __init__(self, image: bpy.types.Image, name: str) -> None:
+    def __init__(self, image: bpy.types.Image, name: str,
+                 blank: tuple[int, int, int, int] | None = None) -> None:
         self.name = name
         self.width = TEXTURE_SIZE
         self.height = TEXTURE_SIZE
+        if blank is not None:
+            self._blank(image, blank)
         if tuple(image.size) != (self.width, self.height):
             image.scale(self.width, self.height)
         self.pixels = list(image.pixels)
+
+    @staticmethod
+    def _blank(image: bpy.types.Image, box: tuple[int, int, int, int]) -> None:
+        """Flood a region of the full-size image with the colour in its top left corner.
+
+        The face has moved to a tile of its own, so the body texture no longer needs it,
+        and keeping it there actively hurts: squeezing 128 by 128 down to 32 by 32
+        averages the eyes and mouth into the pink around them, and the body triangles
+        beside the face then sample that darkened pink and ring the face in shadow.
+        Painting the face out first leaves the whole area the one flat colour it should
+        be, and the join stops being visible.
+
+        Blender stores pixels bottom row first, which is why the rows are flipped.
+        """
+        width, height = image.size
+        x0, y0, x1, y1 = box
+        pixels = list(image.pixels)
+        corner = pixels[0:4]                       # bottom left, always background
+        for row in range(max(0, height - y1), min(height, height - y0)):
+            start = row * width * 4
+            for col in range(max(0, x0), min(width, x1)):
+                pixels[start + col * 4: start + col * 4 + 4] = corner
+        image.pixels = pixels
 
     def pack(self) -> bytes:
         """RGBA5551, row order flipped: Blender stores bottom-up, the N64 top-down."""
@@ -123,10 +177,15 @@ class Texture:
             for col in range(self.width):
                 i = (row * self.width + col) * 4
                 r, g, b, a = self.pixels[i:i + 4]
+                # Quantise by taking the top five bits of the eight, which is what
+                # every other tool in this pipeline does and what the game assumes when
+                # it expands them again. Scaling by 31 instead costs a step: 240 becomes
+                # 29 rather than 30, so the body came out one shade darker than the eye
+                # tile and drew a visible line around the face where the two met.
                 value = (
-                    (clamp(int(r * 31), 0, 31) << 11)
-                    | (clamp(int(g * 31), 0, 31) << 6)
-                    | (clamp(int(b * 31), 0, 31) << 1)
+                    (clamp(int(round(r * 255.0)) >> 3, 0, 31) << 11)
+                    | (clamp(int(round(g * 255.0)) >> 3, 0, 31) << 6)
+                    | (clamp(int(round(b * 255.0)) >> 3, 0, 31) << 1)
                     | (1 if a > 0.5 else 0)
                 )
                 out += struct.pack(">H", value)
@@ -157,7 +216,19 @@ def scale_vertices(xml: str, ratio: float) -> str:
     return re.sub(r'\b([XYZ])="(-?\\d+)"', one, xml)
 
 
-def material_xml(texture_name: str, obj: str, width: int, height: int) -> str:
+# Kirby's face does not name a texture. It samples segment 8, which Player_Draw rebinds
+# every frame to whichever of the eight eye textures matches what Link is doing, so the
+# game blinks him, darts his eyes while he idles and winces when he is hit. The address
+# is written as a path with a leading angle bracket, which is how a published mod does
+# it. The tile is the game's own 64 by 32, which at 16-bit colour is exactly the 4096
+# bytes of texture memory.
+FACE_MATERIAL = "kirby_face"
+FACE_SEGMENT = ">0x08000000"
+FACE_TILE = (64, 32)
+
+
+def material_xml(texture_name: str, obj: str, width: int, height: int,
+                 path: str | None = None, clamp: bool = False) -> str:
     """The tile and combiner setup for one texture.
 
     The numbers follow from the texture size and were checked against a published mod:
@@ -171,17 +242,20 @@ def material_xml(texture_name: str, obj: str, width: int, height: int) -> str:
     dxt = 2048 // row_words
     mask_s = int(math.log2(width))
     mask_t = int(math.log2(height))
+    # A face is clamped, not wrapped: the tile holds the whole of it, and wrapping would
+    # fold a cheek round onto the far side of his head at the seam.
+    wrap = "G_TX_CLAMP" if clamp else "G_TX_WRAP"
 
     return f"""<DisplayList Version="0">
 \t<PipeSync/>
 \t<SetTextureLUT Mode="G_TT_NONE"/>
 \t<Texture S="65535" T="65535" Level="0" Tile="0" On="1"/>
-\t<SetTextureImage Path="{obj}/{texture_name}" Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Width="1"/>
+\t<SetTextureImage Path="{path or f'{obj}/{texture_name}'}" Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Width="1"/>
 \t<SetTile Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b_LOAD_BLOCK" Line="0" TMem="0" Tile="7" Palette="0" Cms0="G_TX_WRAP" Cms1="G_TX_NOMIRROR" Cmt0="G_TX_WRAP" Cmt1="G_TX_NOMIRROR" MaskS="0" ShiftS="0" MaskT="0" ShiftT="0"/>
 \t<LoadSync/>
 \t<LoadBlock Tile="7" Uls="0" Ult="0" Lrs="{texels - 1}" Dxt="{dxt}" />
 \t<PipeSync/>
-\t<SetTile Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b" Line="{row_words}" TMem="0" Tile="0" Palette="0" Cms0="G_TX_WRAP" Cms1="G_TX_NOMIRROR" Cmt0="G_TX_WRAP" Cmt1="G_TX_NOMIRROR" MaskS="{mask_s}" ShiftS="0" MaskT="{mask_t}" ShiftT="0"/>
+\t<SetTile Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b" Line="{row_words}" TMem="0" Tile="0" Palette="0" Cms0="{wrap}" Cms1="G_TX_NOMIRROR" Cmt0="{wrap}" Cmt1="G_TX_NOMIRROR" MaskS="{mask_s}" ShiftS="0" MaskT="{mask_t}" ShiftT="0"/>
 \t<SetTileSize T="0" Uls="0" Ult="0" Lrs="{(width - 1) * 4}" Lrt="{(height - 1) * 4}"/>
 \t<SetCombineLERP A0="G_CCMUX_TEXEL0" B0="G_CCMUX_0" C0="G_CCMUX_SHADE" D0="G_CCMUX_0" Aa0="G_ACMUX_0" Ab0="G_ACMUX_0" Ac0="G_ACMUX_0" Ad0="G_ACMUX_1" A1="G_CCMUX_COMBINED" B1="G_CCMUX_0" C1="G_CCMUX_PRIMITIVE" D1="G_CCMUX_0" Aa1="G_ACMUX_0" Ab1="G_ACMUX_0" Ac1="G_ACMUX_0" Ad1="G_ACMUX_COMBINED"/>
 \t<SetRenderMode Mode1="G_RM_FOG_SHADE_A" Mode2="G_RM_AA_ZB_OPA_SURF2" />
@@ -191,6 +265,95 @@ def material_xml(texture_name: str, obj: str, width: int, height: int) -> str:
 \t<EndDisplayList/>
 </DisplayList>
 """
+
+
+SHEATH_BONES = {"adult": "SwordAndSheath", "child": "SwordAndSheath"}
+
+
+def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
+                    ratio: float, body_material: str = "") -> dict[str, str]:
+    """Move the game's own sheathed sword and shield onto Kirby's back.
+
+    The sheath limb keeps its vanilla display lists, so whatever the player has equipped
+    still draws: the Kokiri sword, the Deku shield, the Hylian shield, the Master sword.
+    What does not work is where they end up. That geometry is authored around Link's own
+    shoulder blade, and the bone it hangs from stays where Link's is however short the
+    character replacing him is, so on a ball two thirds of Link's height the sword and
+    shield hang in the air above and behind him. It shows most in the opening ride,
+    which is where this was spotted.
+
+    A display list names its vertices by resource path, so shipping a moved copy of the
+    vertex list under the same name moves the drawing without touching the list itself,
+    and every variant can be handled the same way. Each is scaled by how much shorter
+    Kirby is and then put back against the ball's own back, measured from his geometry
+    in the sheath bone's frame rather than from a guessed offset.
+    """
+    import glob
+    import re
+
+    bone = armature.data.bones.get(limb_bone)
+    if bone is None:
+        return {}
+    to_bone = (armature.matrix_world @ bone.matrix_local).inverted()
+
+    # Kirby's body in the sheath bone's own frame, in the game's units.
+    # His body, and only his body. Measuring his whole bounding box instead puts the
+    # sheath behind the cap's tail, which reaches a long way past the back of the ball,
+    # and it then floats a clear gap behind him.
+    wanted = {i for i, m in enumerate(kirby.data.materials)
+              if m is not None and m.name == body_material}
+    members = {v for poly in kirby.data.polygons if poly.material_index in wanted
+               for v in poly.vertices}
+    if not members:
+        filler = kirby.vertex_groups.get("role_filler")
+        skip = set()
+        if filler is not None:
+            skip = {v.index for v in kirby.data.vertices
+                    if any(g.group == filler.index and g.weight > 0.0 for g in v.groups)}
+        members = {v.index for v in kirby.data.vertices if v.index not in skip}
+    points = [(to_bone @ (kirby.matrix_world @ kirby.data.vertices[i].co)) * GAME_SCALE
+              for i in members]
+    if not points:
+        return {}
+    centre = Vector((sum(p.x for p in points) / len(points),
+                     sum(p.y for p in points) / len(points),
+                     sum(p.z for p in points) / len(points)))
+
+    # Which way is his back, in this bone's frame. World +Y is behind him, measured in
+    # rig_to_link from the direction the cap's tail hangs.
+    back = (to_bone.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+    depth = max((p - centre).dot(back) for p in points)
+    target = centre + back * depth
+
+    pattern = re.compile(r"VTX\(\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),"
+                         r"\s*(-?0x[0-9A-Fa-f]+|-?\d+),\s*(-?0x[0-9A-Fa-f]+|-?\d+),"
+                         r"\s*(0x[0-9A-Fa-f]+|\d+),\s*(0x[0-9A-Fa-f]+|\d+),"
+                         r"\s*(0x[0-9A-Fa-f]+|\d+),\s*(0x[0-9A-Fa-f]+|\d+)\s*\)")
+
+    out: dict[str, str] = {}
+    for path in sorted(glob.glob(os.path.join(object_dir, "*Sheath*Vtx*.inc.c"))):
+        rows = pattern.findall(open(path, encoding="utf8", errors="replace").read())
+        if not rows:
+            continue
+        positions = [Vector((int(r[0]), int(r[1]), int(r[2]))) for r in rows]
+        lo = Vector((min(p.x for p in positions), min(p.y for p in positions),
+                     min(p.z for p in positions)))
+        hi = Vector((max(p.x for p in positions), max(p.y for p in positions),
+                     max(p.z for p in positions)))
+        middle = (lo + hi) * 0.5
+
+        lines = ['<Vertex Version="0">']
+        for position, row in zip(positions, rows):
+            moved = (position - middle) * ratio + target
+            s_, t_ = (int(row[3], 0), int(row[4], 0))
+            lines.append(
+                f'\t<Vtx X="{int(round(moved.x))}" Y="{int(round(moved.y))}" '
+                f'Z="{int(round(moved.z))}" S="{s_}" T="{t_}" '
+                f'R="{int(row[5], 0)}" G="{int(row[6], 0)}" B="{int(row[7], 0)}" '
+                f'A="{int(row[8], 0)}"/>')
+        lines.append("</Vertex>\n")
+        out[os.path.basename(path)[:-len(".inc.c")]] = "\n".join(lines)
+    return out
 
 
 class LimbBuilder:
@@ -284,6 +447,14 @@ class LimbBuilder:
         return "\n".join(body) + "\n", vertex_files
 
 
+def bone_name_for(armature, limb: str) -> str:
+    """The bone this armature calls a given limb; the two ages name them differently."""
+    for bone in armature.data.bones:
+        if limb_of_bone(bone.name) == limb:
+            return bone.name
+    return ""
+
+
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
@@ -291,6 +462,8 @@ def main() -> None:
     parser.add_argument("--out", required=True)
     parser.add_argument("--age", choices=["adult", "child"], default="adult",
                         help="which player object this build replaces")
+    parser.add_argument("--eyes", default="build/eyes",
+                        help="where tools/face_textures.py --out put the eye resources")
     parser.add_argument("--child-assets",
                         default="decomp/extracted/ntsc-1.2/assets/objects/object_link_child")
     args = parser.parse_args(argv)
@@ -307,6 +480,13 @@ def main() -> None:
     # materials share one image. Keying by index recorded only the first of them and
     # left the rest to fall back on an arbitrary texture, which is how the red of the
     # feet ended up painted across Link's cap.
+    # Set by rig_to_link.split_face: which material the face triangles were taken from,
+    # and the box in that material's image they used to occupy.
+    face_source = mesh.get("face_source_material") or ""
+    face_box = tuple(mesh.get("face_box_px") or ()) or None
+    if face_source:
+        print(f"face came off {face_source!r}; painting it out of that texture at {face_box}")
+
     textures: dict[str, Texture] = {}
     texture_of_material: dict[int, str] = {}
     material_names: dict[int, str] = {}
@@ -319,13 +499,21 @@ def main() -> None:
                 if candidate is not None:
                     image = candidate
                     break
+        if material is not None and material.name == FACE_MATERIAL:
+            # No texture resource of its own: the pixels come from whichever eye texture
+            # the game has bound to segment 8 this frame.
+            material_names[index] = "mat_kirby_face"
+            texture_sizes[index] = FACE_TILE
+            continue
         if image is None:
             continue
         stem = os.path.splitext(os.path.basename(image.name))[0]
         safe = "".join(c if c.isalnum() else "_" for c in stem)[:40]
         texture_name = f"kirby_{safe}"
         if texture_name not in textures:
-            textures[texture_name] = Texture(image, texture_name)
+            textures[texture_name] = Texture(image, texture_name,
+                                             blank=face_box if material.name == face_source
+                                             else None)
         texture_of_material[index] = texture_name
         material_names[index] = f"mat_kirby_{index}_{safe}"
         texture_sizes[index] = (TEXTURE_SIZE, TEXTURE_SIZE)
@@ -419,7 +607,7 @@ def main() -> None:
         if count == 0:
             # Nothing to draw here, so draw nothing. An empty list still hides
             # the vanilla limb, which is what Kirby wants for shins and shoulders.
-            dl_xml = '<DisplayList Version=\"0\">\n\t<EndDisplayList/>\n</DisplayList>\n'
+            dl_xml = EMPTY_DL
         near, far = near_of.get(limb), far_of.get(limb)
         dl_xml = dl_xml.replace(OBJECT + "/", obj_path + "/")
         if near:
@@ -430,11 +618,49 @@ def main() -> None:
             files[name] = payload.replace(OBJECT + "/", obj_path + "/")
         print(f"  {limb:<15} {count:>4} tris -> {near}")
 
+    # The sheathed sword and shield, moved onto his back.
+    object_dir = os.path.abspath(args.child_assets) if args.age == "child" else \
+        os.path.join(os.path.dirname(os.path.abspath(args.child_assets)), "object_link_boy")
+    link_z = [(armature.matrix_world @ b.head_local).z for b in armature.data.bones]
+    kirby_z = [(kirby.matrix_world @ v.co).z for v in mesh.vertices]
+    ratio = (max(kirby_z) - min(kirby_z)) / max(max(link_z) - min(link_z), 1e-6)
+    sheath = sheath_vertices(object_dir, armature, kirby,
+                             bone_name_for(armature, "Sheath"), ratio,
+                             body_material=face_source)
+    files.update(sheath)
+    print(f"{len(sheath)} sheath vertex list(s) scaled to {ratio:.2f} and moved onto his "
+          f"back, so the game's own sword and shield ride where they should")
+
+    hidden = HIDE_HANDS[args.age]
+    for name in hidden:
+        files[name] = EMPTY_DL
+    print(f"\nemptied {len(hidden)} bare-hand list(s), so no vanilla hand draws at the "
+          f"hand bones; the lists that hold an item keep their vanilla geometry")
+
     for texture in textures.values():
         files[texture.name] = texture.resource()
     for index, name in material_names.items():
-        files[name] = material_xml(texture_of_material[index], obj_path,
-                                   TEXTURE_SIZE, TEXTURE_SIZE)
+        if name == "mat_kirby_face":
+            files[name] = material_xml("", obj_path, *FACE_TILE,
+                                       path=FACE_SEGMENT, clamp=True)
+        else:
+            files[name] = material_xml(texture_of_material[index], obj_path,
+                                       TEXTURE_SIZE, TEXTURE_SIZE)
+
+    if any(n == "mat_kirby_face" for n in material_names.values()):
+        # Built by tools/face_textures.py and read back here, rather than built inline,
+        # because this script runs inside Blender and Blender ships no imaging library.
+        folder = os.path.join(os.path.abspath(args.eyes), args.age)
+        if not os.path.isdir(folder):
+            print(f"FAIL: no eye textures at {folder}.")
+            print("Run: python tools/face_textures.py --out build/eyes")
+            sys.exit(1)
+        eyes = sorted(os.listdir(folder))
+        for name in eyes:
+            with open(os.path.join(folder, name), "rb") as handle:
+                files[name] = handle.read()
+        print(f"{len(eyes)} eye texture(s) packed, so the game's own blink, glance and "
+              f"wince swap Kirby's whole face")
 
     out = os.path.abspath(args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)

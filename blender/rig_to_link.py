@@ -49,12 +49,12 @@ BONE_NAME: dict[str, str] = {}
 # Which limbs each role is allowed to claim by proximity to the real bone.
 CANDIDATES: dict[str, tuple[str, ...]] = {
     "feet": ("LeftFoot", "RightFoot", "LeftShin", "RightShin"),
-    "arms": ("LeftHand", "RightHand", "LeftForearm", "RightForearm",
-             "LeftShoulder", "RightShoulder"),
     "sword": ("RightHand",),
 }
-# The cap is not in that table because it cannot be decided independently. It has to
-# ride whichever bone the ball ends up on, which is worked out at rig time.
+# The cap and the mittens are not in that table because neither can be decided
+# independently. Both have to ride whichever bone the ball ends up on, which is worked
+# out at rig time. The reasoning for each is at its own site: see APPENDAGES below for
+# why the arms gave up on Link's arm chain.
 
 # The body ball goes to exactly one bone, and it is worth being plain about why.
 #
@@ -131,19 +131,159 @@ def nearest_limb(p: Vector, segments: dict[str, tuple[Vector, Vector]],
     return best
 
 
-# Which bone each appendage sits on, how it splits left from right, and how far it then
-# drops as a share of body height.
+# Which bone each appendage sits on, and how it splits left from right.
 #
-# The drop exists because Link's hand bones hang at humanoid height, around sixty percent
-# of the way up him, while Kirby stands at well under that. Put his mittens exactly on
-# those bones and they land beside his crown, where they read as ears rather than arms.
-# Dropping them trades a little animation accuracy for a silhouette that makes sense: the
-# residual offset is a fraction of the 1.72 units that threw them about in the first
-# place, so the swing it reintroduces is small.
+# Only the feet are here, and the arms are not, which took three attempts to arrive at.
+# Link's hand bones hang at humanoid height, about sixty percent of the way up him, and
+# Kirby's crown is lower than that. Seat the mittens exactly on those bones and they land
+# on his upper flank, where they read as ears. Drop them to his waist instead and the
+# silhouette is right while standing, but the offset from the bone is then an arc that
+# every arm rotation swings them through, so they flap as soon as he moves.
+#
+# There is no third position that fixes both, because no bone in Link's arm chain sits
+# near Kirby's middle: measured on the child skeleton, the hand bone is 0.71 above the
+# ball's centre, which is 0.62 of the ball's own radius. So the arms give up on following
+# the arm chain and ride the body instead, in weight(), exactly as the cap does. Kirby's
+# own model already puts them where they belong on him, so they are left alone here.
+#
+# The cost is that he does not swing his arms. That is a fair likeness of Kirby, who
+# holds his mittens out from his sides in almost every pose he has, and the body bone
+# still twists during a sword swing, so they are not frozen.
 APPENDAGES = (
-    ("arms", "LeftHand", "RightHand", 0.26),
     ("feet", "LeftFoot", "RightFoot", 0.0),
 )
+
+
+# Where the mittens sit on the ball, as a fraction of the ball's own height from its
+# bottom. Kirby's arms are below his eyes, around the middle of him; the Kirby 64 model
+# puts them higher than that because its own eyes sit higher than ours end up, and left
+# alone they come out level with the face and read as ears all over again.
+#
+# This is a free dial now. While the mittens rode Link's hand bones, moving them was
+# paid for in swing, because the offset from the bone is the radius of the arc every arm
+# rotation drags them through. They ride the body, so the height is a modelling choice
+# and costs nothing.
+ARM_HEIGHT = 0.40
+
+
+# Kirby's face, as a box in the body texture's own coordinates, and the name the split
+# material takes. The box is measured, not chosen: eighteen of the nineteen Kirby 64 face
+# textures put every feature inside x 34 to 93 and y 36 to 93 of a 128 by 128 image, and
+# tools/face_textures.py --measure re-derives it and fails if the assets ever move it.
+#
+# Blender's V runs the other way from the image's rows, hence the subtractions.
+FACE_BOX_PX = (34, 36, 94, 94)
+FACE_MATERIAL = "kirby_face"
+
+
+def split_face(kirby: bpy.types.Object) -> str:
+    """Move the face triangles onto their own material, keyed to the game's eye tile.
+
+    The face used to share the body's texture, and the body's texture has to fit the
+    whole of him into 32 by 32, so the face got about fifteen pixels across and looked
+    like it. Ocarina of Time already keeps the eyes on a tile of their own, 64 by 32,
+    swapped every frame through segment 8 so Link can blink: giving Kirby's face that
+    tile is four times the width and twice the height for free, and it comes with the
+    game's own expression logic attached.
+
+    Nothing is added to the mesh. The triangles that already carry the face are simply
+    reassigned, so they keep the ball's curvature and its normals and cannot seam or
+    z-fight the way a flat decal laid over the top would.
+
+    Three tests pick them, and the second and third are not optional. The texture box
+    alone catches 164 triangles when the face is 86, because the Kirby 64 ball is
+    unwrapped so that the back of his head samples the same patch of the texture as the
+    front, and because some of the cap's triangles happen to land in the same box of
+    their own image. Reassigning those gave him a second face on the back of his head
+    and a smear of eye across the hat, which is what a hard line between face and body
+    looks like from the front.
+    """
+    mesh = kirby.data
+    uv_layer = mesh.uv_layers.active
+    if uv_layer is None:
+        return "no UV map, so the face cannot be split"
+
+    roles = roles_of(kirby)
+    ball = roles.get("ball") or set()
+    cap = roles.get("cap") or set()
+    if not ball:
+        return "no ball role, so the face cannot be told from the hat"
+
+    # Which way he faces, measured rather than assumed. Link's cap has a long tail, and
+    # the tail hangs down the back, so whichever side the cap reaches further than the
+    # ball does is behind him.
+    def reach(members, sign):
+        pts = [(kirby.matrix_world @ mesh.vertices[i].co).y for i in members]
+        return (max(pts) if sign > 0 else -min(pts)) if pts else 0.0
+
+    behind = 1.0
+    if cap:
+        behind = 1.0 if reach(cap, 1) - reach(ball, 1) > reach(cap, -1) - reach(ball, -1) else -1.0
+
+    x0, y0, x1, y1 = FACE_BOX_PX
+    u0, u1 = x0 / 128.0, x1 / 128.0
+    v0, v1 = 1.0 - y1 / 128.0, 1.0 - y0 / 128.0
+
+    material = bpy.data.materials.get(FACE_MATERIAL) or bpy.data.materials.new(FACE_MATERIAL)
+    if material.name not in [m.name for m in mesh.materials if m]:
+        mesh.materials.append(material)
+    index = next(i for i, m in enumerate(mesh.materials) if m and m.name == FACE_MATERIAL)
+
+    chosen = []
+    for poly in mesh.polygons:
+        if poly.material_index == index:
+            continue
+        if not all(v in ball for v in poly.vertices):      # the ball, not the hat or feet
+            continue
+        if poly.normal.y * behind >= 0.0:                  # facing forward, not backward
+            continue
+        u = sum(uv_layer.data[l].uv[0] for l in poly.loop_indices) / poly.loop_total
+        v = sum(uv_layer.data[l].uv[1] for l in poly.loop_indices) / poly.loop_total
+        if u0 <= u <= u1 and v0 <= v <= v1:
+            chosen.append(poly)
+
+    # Remember which image the face came off, so the packer can paint the face out of
+    # it. Left in, the face is averaged into the body texture when that is squeezed down
+    # to 32 by 32, which darkens the pink for a few texels all round the face box; the
+    # body triangles next to the face then sample those darkened texels and draw a dim
+    # ring around the patch. That ring is the hard line between face and body.
+    sources = {mesh.materials[i].name for i in {p.material_index for p in chosen}
+               if i < len(mesh.materials) and mesh.materials[i]}
+    mesh["face_source_material"] = sorted(sources)[0] if sources else ""
+    mesh["face_box_px"] = list(FACE_BOX_PX)
+
+    for poly in chosen:
+        poly.material_index = index
+        for loop in poly.loop_indices:
+            u, v = uv_layer.data[loop].uv
+            uv_layer.data[loop].uv = ((u - u0) / (u1 - u0), (v - v0) / (v1 - v0))
+
+    mesh.update()
+    return (f"face split onto {FACE_MATERIAL!r}: {len(chosen)} front triangle(s) of the "
+            f"ball moved onto the game's own 64 by 32 eye tile "
+            f"(back is {'+Y' if behind > 0 else '-Y'})")
+
+
+def place_arms(kirby: bpy.types.Object) -> str:
+    """Slide the mittens down the ball to ARM_HEIGHT, keeping them out at its flank."""
+    roles = roles_of(kirby)
+    arms = roles.get("arms") or set()
+    ball = roles.get("ball") or set()
+    if not arms or not ball:
+        return "no arms or no ball to place them against"
+
+    ball_z = [(kirby.matrix_world @ kirby.data.vertices[i].co).z for i in ball]
+    lo, hi = min(ball_z), max(ball_z)
+    target = lo + (hi - lo) * ARM_HEIGHT
+
+    arm_z = [(kirby.matrix_world @ kirby.data.vertices[i].co).z for i in arms]
+    centre = sum(arm_z) / len(arm_z)
+    shift = target - centre
+    for i in arms:
+        kirby.data.vertices[i].co.z += shift
+    kirby.data.update()
+    return (f"mittens moved {shift:+.2f} to z {target:.2f}, "
+            f"{ARM_HEIGHT:.0%} up a ball that spans {lo:.2f} to {hi:.2f}")
 
 
 def seat_appendages(kirby: bpy.types.Object,
@@ -267,15 +407,25 @@ def weight(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, Vector]]) 
         for i in ball:
             owner[i] = best
 
-        # The cap joins the ball. Link's hat bone is a child of his head, so leaving the
-        # cap there would have it swing away from a ball that no longer follows the head.
-        # It is a shame: the hat limb was the neatest part of the idea. But a cap welded
-        # to the skull beats a cap that detaches every time the game aims his head.
-        cap = roles.get("cap") or set()
-        for i in cap:
-            owner[i] = best
-        if cap:
-            print(f"  cap rides {best!r} too, so it cannot separate from the head")
+        # The cap and the mittens join the ball, for the same reason by two routes.
+        #
+        # Link's hat bone is a child of his head, so a cap left there would swing away
+        # from a ball that no longer follows the head. It is a shame, because the hat
+        # limb was the neatest part of the idea, but a cap welded to the skull beats one
+        # that detaches every time the game aims his head.
+        #
+        # The mittens are here because Link's arm chain has no bone near Kirby's middle,
+        # so anything weighted to it either sits too high or swings through the offset.
+        # Riding the body makes them rigid nubs, which is what Kirby's arms look like.
+        # The hand limbs are then left with no geometry and the mod writes them an empty
+        # display list, which hides Link's own hands. His held sword is unaffected: that
+        # comes from the separate fist-and-sword lists, which this mod does not replace.
+        for role in ("cap", "arms"):
+            members = roles.get(role) or set()
+            for i in members:
+                owner[i] = best
+            if members:
+                print(f"  {role} rides {best!r} too, so it cannot separate from the body")
 
     for group in list(kirby.vertex_groups):
         kirby.vertex_groups.remove(group)
@@ -390,6 +540,8 @@ def main() -> None:
 
     for note in seat_appendages(kirby, segments):
         print(f"  seated {note}")
+    print(f"  {place_arms(kirby)}")
+    print(f"  {split_face(kirby)}")
 
     counts = weight(kirby, segments)
     filled = fill_empty(kirby, counts, segments)
@@ -422,6 +574,7 @@ def main() -> None:
         lod_segments = bone_segments(lod_armature)
         lod_scale = fit_to_skeleton(lod, lod_segments)
         seat_appendages(lod, lod_segments)
+        print(f"  {place_arms(lod)}")
         lod_counts = weight(lod, lod_segments)
         lod_filled = fill_empty(lod, lod_counts, lod_segments)
 
