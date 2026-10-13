@@ -407,6 +407,76 @@ def lowered_shoulders(archive: str, age: str, drop: int) -> dict[str, bytes]:
     return out
 
 
+# Where Kirby sits on the horse, in the game's own units.
+#
+# A ball rigged to a humanoid cannot sit well. Every spine bone on Link is above his
+# hips, while a ball's centre is at its own middle, so Kirby's body hangs 1.79 below
+# whichever bone drives it on the adult skeleton. Standing you never see it, because his
+# feet are pinned to the ground and the ball lands where it should. Seated, the saddle
+# holds the spine where Link's chest would be and Kirby drops below and behind it, while
+# the sword and shield stay with their own bone and end up in front of him.
+#
+# Raising the ball would fix the saddle and ruin standing, which is the rest of the game.
+# The riding animations are the way out: each frame of a player animation begins with the
+# root's translation, so shifting that moves the whole character, and only while that
+# animation is playing. Nothing else in the game is touched.
+#
+# Axes, measured rather than assumed. The jump animation's root runs z -22 to -447 while
+# rising y 2680 to 2992, so y is up and negative z is forward.
+RIDE_LIFT = 1790          # up, to undo the hang measured on the adult rig
+RIDE_FORWARD = 400        # onto the saddle; subtracted from z, because -z is forward
+
+# Only the adult rides, so this goes in the adult archive alone. The animation data is
+# shared between the two ages, so there is nothing age-specific to decide.
+RIDE_PREFIX = "gPlayerAnim_link_uma"
+
+
+def riding_animations(archive: str, lift: int, forward: int) -> dict[str, bytes]:
+    """Copies of the riding animations with the character moved up and forwards.
+
+    A player animation is two resources. The header carries the frame count and the name
+    of the data blob; the blob is one flat run of signed shorts, 67 per frame, being the
+    root's translation as three, then three rotations for each of the 21 limbs, then one
+    short packing the eye and mouth flipbook indices. Only the first three of each frame
+    are touched, so every pose is exactly as the game authored it and the whole rider
+    simply sits somewhere else.
+
+    The nineteen riding animations were checked to own their data blobs outright: no
+    other animation in the game shares one, so nothing else can move.
+    """
+    import struct
+    import zipfile
+
+    out: dict[str, bytes] = {}
+    with zipfile.ZipFile(archive) as handle:
+        names = handle.namelist()
+        for header in [n for n in names if RIDE_PREFIX in n and "/link_animetion/" not in n]:
+            raw = handle.read(header)
+            if struct.unpack_from("<I", raw, 64)[0] != 1:
+                continue                      # not a player animation
+            frames = struct.unpack_from("<h", raw, 68)[0]
+            length = struct.unpack_from("<I", raw, 70)[0]
+            segment = raw[74:74 + length].decode("utf8", "replace").replace("__OTR__", "")
+
+            found = [n for n in names if n.endswith(segment)]
+            if not found:
+                continue
+            data = bytearray(handle.read(found[0]))
+            count = struct.unpack_from("<I", data, 64)[0]
+            if count != frames * 67:
+                print(f"  note: {segment.split('/')[-1]} is {count} shorts, not "
+                      f"{frames} x 67; left alone")
+                continue
+            for frame in range(frames):
+                at = 68 + frame * 67 * 2
+                x, y, z = struct.unpack_from("<3h", data, at)
+                struct.pack_into("<3h", data, at,
+                                 x, clamp(y + lift, -32768, 32767),
+                                 clamp(z - forward, -32768, 32767))
+            out[segment] = bytes(data)
+    return out
+
+
 class LimbBuilder:
     """Collects one limb's triangles and turns them into game resources."""
 
@@ -691,6 +761,20 @@ def main() -> None:
         files.update(lowered_shoulders(os.path.abspath(args.game_archive), args.age,
                                        SHOULDER_DROP))
 
+    # Seat him properly on the horse. Only the adult rides.
+    #
+    # Kept apart from `files` because these names are already full paths from the root of
+    # the archive. Everything in `files` is a bare resource name that gets the player
+    # object's folder prefixed to it, which would bury an animation somewhere the game
+    # never looks for one.
+    rooted: dict[str, bytes] = {}
+    if args.age == "adult" and (RIDE_LIFT or RIDE_FORWARD):
+        rides = riding_animations(os.path.abspath(args.game_archive),
+                                  RIDE_LIFT, RIDE_FORWARD)
+        rooted.update(rides)
+        print(f"\n{len(rides)} riding animation(s) shifted up {RIDE_LIFT / GAME_SCALE:.2f} "
+              f"and forward {RIDE_FORWARD / GAME_SCALE:.2f}, so he sits on the saddle")
+
     hidden = HIDE_HANDS[args.age]
     for name in hidden:
         files[name] = EMPTY_DL
@@ -728,10 +812,13 @@ def main() -> None:
         for name, payload in sorted(files.items()):
             data = payload.encode("utf8") if isinstance(payload, str) else payload
             archive.writestr(f"{alt_path}/{name}", data)
+        for name, payload in sorted(rooted.items()):
+            archive.writestr(f"alt/{name}", payload)
 
     size = os.path.getsize(out)
     print(f"\n{total_tris} triangles placed, {skipped} with no limb were dropped")
-    print(f"wrote {len(files)} {args.age} resources to {out} ({size / 1024:.0f} KB)")
+    print(f"wrote {len(files) + len(rooted)} {args.age} resources to {out} "
+          f"({size / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":
