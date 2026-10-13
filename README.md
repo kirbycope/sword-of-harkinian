@@ -20,8 +20,36 @@ round trip and packing.
 | Fast64 skeleton import of Adult Link | Done, 21 bones, table agrees |
 | Sword Kirby, assembled and rigged to the real skeleton | Done, 490 vertices, 706 triangles |
 | Pose tests proving the weights follow the bones | Done, in `docs/preview/pose` |
-| Export, and packing the mod as an o2r | Next |
+| Playing Link's own animations on him | Done, `docs/preview/kirby_idle.mp4` |
+| Fast64 export into the decompilation | Done |
+| Building a ROM, so the game can extract him | In progress |
 | Running it in Ship of Harkinian 9.3.0 | Not started |
+
+## Getting him into the game
+
+This is the part the community guides skip over, so it is worth stating plainly.
+
+Ship of Harkinian loads custom assets from `.otr` archives in its `mods` folder, and
+`retro` is named as the packer. But retro 0.2.1 only packs a directory of files as they
+already are; its Ship of Harkinian tools cover music sequences and fonts, and nothing in
+it compiles decompilation output into the game's own resource format. That conversion is
+done by Ship of Harkinian itself, when it extracts from a ROM on first run.
+
+So the route in is to build a ROM with Kirby in it and let the game extract him:
+
+1. Fast64 exports the rigged model into `decomp/assets/objects/object_link_boy/`.
+2. The decompilation is built into a ROM with `COMPARE=0`, which the Makefile itself
+   documents as the setting to use when modding, since the output is meant not to match
+   the original checksum.
+3. Ship of Harkinian extracts that ROM into its `oot.o2r` exactly as it would a retail
+   one.
+
+Building needs a MIPS toolchain, which is the real cost. The decompilation's macOS guide
+installs binutils to `/opt/cross` with `sudo`; an account without passwordless sudo can
+build to a home directory instead, since the Makefile only needs the tools on `PATH`.
+On a Mac whose default SDK is newer than its command line tools, set `SDKROOT` to the
+matching SDK or nothing will link. The compiler itself needs no work: the build fetches
+a recompiled IDO, which is what the game was originally built with.
 
 ## Where Kirby comes from
 
