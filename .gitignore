@@ -1,0 +1,29 @@
+# The original decompilation is upstream source and is never committed here.
+# Clone it with tools/setup.ps1; it is Fast64's import/export target only.
+/decomp/
+
+# Staged third-party toolchain: Ship of Harkinian, Fast64, retro.
+/.toolchain/
+
+# Never commit a ROM or anything extracted from one.
+*.z64
+*.n64
+*.v64
+*.o2r
+*.otr
+baserom*/
+
+# Build output
+/build/
+/dist/
+
+# Watchdog run logs
+/watchdog/
+
+# Blender
+*.blend1
+*.blend2
+
+# Python
+__pycache__/
+*.pyc
