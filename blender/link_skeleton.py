@@ -77,6 +77,22 @@ INDEX = {name: i for i, (name, _p, _d, _pos, _s, _n, _f) in enumerate(LIMBS)}
 # What Fast64 calls each bone after importing the skeleton.
 FAST64_BONE = {name: f"bone{INDEX[name]:03d}_{STRUCT[name]}" for name in NAMES}
 
+# Child Link is a separate object with the same limbs in the same order. Its struct
+# names are listed here so an imported child skeleton can be recognised too; note
+# "Leftshoulder" and "Rightshoulder" carry a small s, which the adult's do not.
+CHILD_STRUCT_ORDER = [
+    "gLinkChildRootLimb", "gLinkChildWaistLimb", "gLinkChildLowerControlLimb",
+    "gLinkChildRightThighLimb", "gLinkChildRightShinLimb", "gLinkChildRightFootLimb",
+    "gLinkChildLeftThighLimb", "gLinkChildLeftShinLimb", "gLinkChildLeftFootLimb",
+    "gLinkChildUpperControlLimb", "gLinkChildHeadLimb", "gLinkChildHatLimb",
+    "gLinkChildCollarLimb", "gLinkChildLeftshoulderLimb", "gLinkChildLeftForearmLimb",
+    "gLinkChildLeftHandLimb", "gLinkChildRightshoulderLimb", "gLinkChildRightForearmLimb",
+    "gLinkChildRightHandLimb", "gLinkChildSwordAndSheathLimb", "gLinkChildTorsoLimb",
+]
+CHILD_STRUCT = {name: CHILD_STRUCT_ORDER[i] for i, name in enumerate(NAMES)}
+assert len(CHILD_STRUCT_ORDER) == 21
+
+
 
 def limb_of_bone(bone_name: str) -> str | None:
     """Map an imported bone back to this table's short limb name.
@@ -85,7 +101,9 @@ def limb_of_bone(bone_name: str) -> str | None:
     Fast64 ever changes how it numbers or prefixes bones.
     """
     for name in NAMES:
-        if bone_name == FAST64_BONE[name] or bone_name.endswith(STRUCT[name]):
+        if (bone_name == FAST64_BONE[name]
+                or bone_name.endswith(STRUCT[name])
+                or bone_name.endswith(CHILD_STRUCT[name])):
             return name
     return None
 

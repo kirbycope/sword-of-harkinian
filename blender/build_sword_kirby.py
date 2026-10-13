@@ -615,14 +615,14 @@ def assemble(assets_root: str, verbose: bool = True) -> bpy.types.Object:
         print(f"  cap    {len(cap.data.vertices):>4} verts  {kept:>4} tris   Smash 64")
     place_cap(cap, donor_lo, donor_hi, body_lo, body_hi)
 
-    sword = join(import_obj(sword_obj), "Sword")
-    tag_role(sword, "sword")
+    # No sword on the model. Link is given one by the game, drawn from his own hand
+    # and sheath display lists, and a sword welded to Kirby's body would sit alongside
+    # it. The Burn-Cutter Sword import and its placement are kept above because they
+    # are still wanted for renders; they are simply not part of what ships.
     if verbose:
-        tris = sum(len(p.vertices) - 2 for p in sword.data.polygons)
-        print(f"  sword  {len(sword.data.vertices):>4} verts  {tris:>4} tris   Kirby 64")
-    place_sword(sword, body, body_lo, body_hi)
+        print("  sword  omitted: the game gives Link his own")
 
-    return join([body, cap, sword], "SwordKirby")
+    return join([body, cap], "SwordKirby")
 
 
 def main() -> None:

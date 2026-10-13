@@ -35,7 +35,11 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "blender"))
-from link_skeleton import DEFORM, FAST64_BONE, FAR_DL, NEAR_DL  # noqa: E402
+from link_skeleton import DEFORM, FAR_DL, NEAR_DL, limb_of_bone  # noqa: E402
+
+# Limbs this mod does not touch. The sheath keeps its vanilla display list so the
+# sword and scabbard the game gives Link still appear; Kirby carries none of his own.
+LEAVE_ALONE = ("Sheath",)
 
 OBJECT = "objects/object_link_boy"
 ALT = "alt/" + OBJECT
@@ -46,6 +50,11 @@ ALT = "alt/" + OBJECT
 # vertices are in bone-local space, and Kirby is the same size whichever Link he stands
 # in for. Only the display list names differ, and they are read from the extracted
 # object rather than guessed, because one of them is "Leftshoulder" with a small s.
+# Child Link is about 0.70 the size of the adult, measured from their limb data: the
+# root joint is 2376 against 3377 and the head joint 996 against 1392. The geometry is
+# authored against the adult rig, so it has to be scaled for the child or Kirby stands
+# a third taller than the Link he is replacing.
+CHILD_RATIO = 0.70
 CHILD_OBJECT = "objects/object_link_child"
 CHILD_ALT = "alt/" + CHILD_OBJECT
 CHILD_LIMB_STEMS = [
@@ -132,6 +141,20 @@ class Texture:
         body = struct.pack("<4I2fI", FORMAT_RGBA16, self.width, self.height, 0,
                            1.0, 1.0, len(data))
         return bytes(header) + body + data
+
+
+def scale_vertices(xml: str, ratio: float) -> str:
+    """Scale a vertex list's positions, leaving texture coordinates and colour alone.
+
+    Only X, Y and Z are touched. S and T are texture coordinates on a fixed-point
+    scale of their own, and scaling those would slide the texture across the model.
+    """
+    import re
+
+    def one(match):
+        return f'{match.group(1)}="{int(round(int(match.group(2)) * ratio))}"'
+
+    return re.sub(r'\b([XYZ])="(-?\\d+)"', one, xml)
 
 
 def material_xml(texture_name: str, obj: str, width: int, height: int) -> str:
@@ -266,6 +289,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--blend", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--age", choices=["adult", "child"], default="adult",
+                        help="which player object this build replaces")
     parser.add_argument("--child-assets",
                         default="decomp/extracted/ntsc-1.2/assets/objects/object_link_child")
     args = parser.parse_args(argv)
@@ -278,8 +303,12 @@ def main() -> None:
     mesh = kirby.data
     print(f"model {kirby.name!r}: {len(mesh.vertices)} verts, {len(mesh.materials)} materials")
 
-    # One texture per material that has one; the rest fall back to a flat colour image.
-    textures: dict[int, Texture] = {}
+    # Textures are keyed by their own name, not by material index, because several
+    # materials share one image. Keying by index recorded only the first of them and
+    # left the rest to fall back on an arbitrary texture, which is how the red of the
+    # feet ended up painted across Link's cap.
+    textures: dict[str, Texture] = {}
+    texture_of_material: dict[int, str] = {}
     material_names: dict[int, str] = {}
     texture_sizes: dict[int, tuple[int, int]] = {}
     for index, material in enumerate(mesh.materials):
@@ -295,10 +324,13 @@ def main() -> None:
         stem = os.path.splitext(os.path.basename(image.name))[0]
         safe = "".join(c if c.isalnum() else "_" for c in stem)[:40]
         texture_name = f"kirby_{safe}"
-        if texture_name not in {t.name for t in textures.values()}:
-            textures[index] = Texture(image, texture_name)
+        if texture_name not in textures:
+            textures[texture_name] = Texture(image, texture_name)
+        texture_of_material[index] = texture_name
         material_names[index] = f"mat_kirby_{index}_{safe}"
         texture_sizes[index] = (TEXTURE_SIZE, TEXTURE_SIZE)
+    print(f"{len(textures)} distinct texture(s) across "
+          f"{len(material_names)} textured material(s)")
 
     uv_layer = mesh.uv_layers.active
     if uv_layer is None:
@@ -306,9 +338,26 @@ def main() -> None:
         sys.exit(1)
     mesh.calc_loop_triangles()
 
+    filler_group = kirby.vertex_groups.get("role_filler")
+    filler_vertices: set[int] = set()
+    if filler_group is not None:
+        filler_vertices = {
+            v.index for v in mesh.vertices
+            if any(g.group == filler_group.index and g.weight > 0.0 for g in v.groups)
+        }
+    print(f"{len(filler_vertices)} filler vertices left out of the mod")
+
+    # Bone names differ between the adult and child skeletons, so read them off the
+    # armature in hand rather than assuming the adult's.
+    bone_name_to_limb = {}
+    for bone in armature.data.bones:
+        limb = limb_of_bone(bone.name)
+        if limb in DEFORM:
+            bone_name_to_limb[bone.name] = limb
+    print(f"recognised {len(bone_name_to_limb)} drawing limb(s) on {armature.name!r}")
+
     group_of = {g.index: g.name for g in kirby.vertex_groups}
     limb_of_vertex: dict[int, str] = {}
-    bone_name_to_limb = {FAST64_BONE[n]: n for n in DEFORM}
     for v in mesh.vertices:
         for g in v.groups:
             if g.weight > 0.0:
@@ -317,15 +366,19 @@ def main() -> None:
                     limb_of_vertex[v.index] = limb
                     break
 
+    limb_to_bone = {limb: name for name, limb in bone_name_to_limb.items()}
     builders: dict[str, LimbBuilder] = {}
     for limb in DEFORM:
-        bone = armature.data.bones[FAST64_BONE[limb]]
+        bone = armature.data.bones[limb_to_bone[limb]]
         builders[limb] = LimbBuilder(limb, armature.matrix_world @ bone.matrix_local,
                                      texture_sizes)
 
     world = kirby.matrix_world
     skipped = 0
     for tri in mesh.loop_triangles:
+        if any(v in filler_vertices for v in tri.vertices):
+            skipped += 1
+            continue
         owners = [limb_of_vertex.get(v) for v in tri.vertices]
         present = [o for o in owners if o]
         if not present:
@@ -344,55 +397,55 @@ def main() -> None:
         builders[limb].add(tri.material_index, corners)
 
     files: dict[str, str | bytes] = {}
-    child_files: dict[str, str | bytes] = {}
-    child_lists = child_display_lists(os.path.abspath(args.child_assets))
-    print(f"child display lists found for {len(child_lists)} limb(s)")
+    if args.age == "child":
+        obj_path, alt_path = CHILD_OBJECT, CHILD_ALT
+        child_lists = child_display_lists(os.path.abspath(args.child_assets))
+        near_of = {limb: names[0] for limb, names in child_lists.items()}
+        far_of = {limb: names[1] for limb, names in child_lists.items()}
+        print(f"child build: display lists found for {len(child_lists)} limb(s)")
+    else:
+        obj_path, alt_path = OBJECT, ALT
+        near_of, far_of = dict(NEAR_DL), dict(FAR_DL)
+        print("adult build")
     total_tris = 0
     print("\nper limb:")
     for limb in DEFORM:
+        if limb in LEAVE_ALONE:
+            print(f"  {limb:<15}    - left vanilla, so the game's own sword still draws")
+            continue
         dl_xml, vertex_files = builders[limb].build(material_names)
         count = sum(len(v) for v in builders[limb].by_material.values())
         total_tris += count
-        near, far = NEAR_DL[limb], FAR_DL[limb]
-        files[near] = dl_xml
+        if count == 0:
+            # Nothing to draw here, so draw nothing. An empty list still hides
+            # the vanilla limb, which is what Kirby wants for shins and shoulders.
+            dl_xml = '<DisplayList Version=\"0\">\n\t<EndDisplayList/>\n</DisplayList>\n'
+        near, far = near_of.get(limb), far_of.get(limb)
+        dl_xml = dl_xml.replace(OBJECT + "/", obj_path + "/")
+        if near:
+            files[near] = dl_xml
         if far:
             files[far] = dl_xml
-        files.update(vertex_files)
-
-        child_near, child_far = child_lists.get(limb, (None, None))
-        child_xml = dl_xml.replace(OBJECT + "/", CHILD_OBJECT + "/")
-        for name in (child_near, child_far):
-            if name:
-                child_files[name] = child_xml
         for name, payload in vertex_files.items():
-            child_files[name] = payload.replace(OBJECT + "/", CHILD_OBJECT + "/")
+            files[name] = payload.replace(OBJECT + "/", obj_path + "/")
+        print(f"  {limb:<15} {count:>4} tris -> {near}")
 
-        print(f"  {limb:<15} {count:>4} tris -> {near}"
-              + (f" / {child_near}" if child_near else "  (no child list)"))
-
-    for index, texture in textures.items():
+    for texture in textures.values():
         files[texture.name] = texture.resource()
-        child_files[texture.name] = texture.resource()
     for index, name in material_names.items():
-        texture_name = (textures[index].name if index in textures
-                        else next(iter(textures.values())).name)
-        files[name] = material_xml(texture_name, OBJECT, TEXTURE_SIZE, TEXTURE_SIZE)
-        child_files[name] = material_xml(texture_name, CHILD_OBJECT, TEXTURE_SIZE, TEXTURE_SIZE)
+        files[name] = material_xml(texture_of_material[index], obj_path,
+                                   TEXTURE_SIZE, TEXTURE_SIZE)
 
     out = os.path.abspath(args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, payload in sorted(files.items()):
             data = payload.encode("utf8") if isinstance(payload, str) else payload
-            archive.writestr(f"{ALT}/{name}", data)
-        for name, payload in sorted(child_files.items()):
-            data = payload.encode("utf8") if isinstance(payload, str) else payload
-            archive.writestr(f"{CHILD_ALT}/{name}", data)
+            archive.writestr(f"{alt_path}/{name}", data)
 
     size = os.path.getsize(out)
     print(f"\n{total_tris} triangles placed, {skipped} with no limb were dropped")
-    print(f"wrote {len(files)} adult and {len(child_files)} child resources "
-          f"to {out} ({size / 1024:.0f} KB)")
+    print(f"wrote {len(files)} {args.age} resources to {out} ({size / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":

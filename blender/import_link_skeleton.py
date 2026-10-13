@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from link_skeleton import LIMBS, verify_against_imported  # noqa: E402
 
 
-def configure(decomp_path: str, version: str) -> None:
+def configure(decomp_path: str, version: str, mode: str = "Adult Link") -> None:
     scene = bpy.context.scene
 
     # Fast64 serves both Ocarina of Time and Majora's Mask from one z64 module, so the
@@ -43,7 +43,7 @@ def configure(decomp_path: str, version: str) -> None:
     oot.oot_version = version
 
     settings = oot.skeletonImportSettings
-    settings.mode = "Adult Link"
+    settings.mode = mode
     settings.applyRestPose = True
     # Doubles removal welds vertices across limb boundaries, which is exactly what must
     # not happen: a vertex shared between two limbs has nowhere to go in a skeleton that
@@ -69,19 +69,24 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--decomp", default="decomp")
     parser.add_argument("--version", default="ntsc-1.2")
+    parser.add_argument("--mode", default="Adult Link",
+                        choices=["Adult Link", "Child Link"],
+                        help="which player skeleton to import")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
 
     decomp = os.path.abspath(args.decomp)
-    objects_dir = os.path.join(decomp, "extracted", args.version, "assets", "objects", "object_link_boy")
+    folder = "object_link_boy" if args.mode == "Adult Link" else "object_link_child"
+    objects_dir = os.path.join(decomp, "extracted", args.version, "assets", "objects", folder)
     if not os.path.isdir(objects_dir):
         print(f"FAIL: no extracted assets at {objects_dir}")
         print("Extract them from your own ROM first; see README.md.")
         sys.exit(1)
 
-    configure(decomp, args.version)
+    configure(decomp, args.version, args.mode)
     print(f"decomp   {decomp}")
     print(f"version  {args.version}")
+    print(f"mode     {args.mode}")
 
     before = set(bpy.data.objects)
     bpy.ops.object.oot_import_skeleton()
@@ -98,7 +103,7 @@ def main() -> None:
     tris = sum(sum(len(p.vertices) - 2 for p in m.data.polygons) for m in meshes)
     print(f"\nLink's own mesh came in as {len(meshes)} object(s), {tris} triangles")
 
-    problems = verify_against_imported(armature)
+    problems = verify_against_imported(armature) if args.mode == "Adult Link" else []
     print(f"\nchecking the limb table ({len(LIMBS)} limbs) against the import:")
     if problems:
         for p in problems:

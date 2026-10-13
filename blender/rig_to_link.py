@@ -43,6 +43,9 @@ from link_skeleton import (  # noqa: E402
     verify_against_imported,
 )
 
+# Filled in once the armature is known, since adult and child name their bones apart.
+BONE_NAME: dict[str, str] = {}
+
 # Which limbs each role is allowed to claim by proximity to the real bone.
 CANDIDATES: dict[str, tuple[str, ...]] = {
     "feet": ("LeftFoot", "RightFoot", "LeftShin", "RightShin"),
@@ -72,7 +75,24 @@ SPINE = ("Waist", "Torso", "Collar", "Head")
 # How tall Kirby stands relative to Link. He is a ball, so matching Link's full height
 # would make him enormous; this keeps his crown near Link's, which is what the camera
 # and the animations are built around.
-HEIGHT_OF_LINK = 0.92
+# Kirby is a short round ball, not a humanoid, so he stands well below Link's
+# height. This is a share of whichever Link he replaces: the child geometry is
+# scaled when the mod is written, so the same number holds for both.
+HEIGHT_OF_LINK = 0.62
+
+
+def bone_names(armature: bpy.types.Object) -> dict[str, str]:
+    """Map each limb to the bone that represents it in this particular armature.
+
+    The adult and child skeletons name their bones differently, so the names are read
+    off the armature in hand rather than taken from the adult table.
+    """
+    out: dict[str, str] = {}
+    for bone in armature.data.bones:
+        limb = limb_of_bone(bone.name)
+        if limb is not None:
+            out[limb] = bone.name
+    return out
 
 
 def bone_segments(armature: bpy.types.Object) -> dict[str, tuple[Vector, Vector]]:
@@ -194,7 +214,7 @@ def weight(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, Vector]]) 
 
     for group in list(kirby.vertex_groups):
         kirby.vertex_groups.remove(group)
-    groups = {name: kirby.vertex_groups.new(name=FAST64_BONE[name]) for name in DEFORM}
+    groups = {name: kirby.vertex_groups.new(name=BONE_NAME[name]) for name in DEFORM}
     for index, limb in owner.items():
         groups[limb].add([index], 1.0, "REPLACE")
 
@@ -247,11 +267,19 @@ def fill_empty(kirby: bpy.types.Object, counts: dict[str, int],
     bm.to_mesh(kirby.data)
     bm.free()
 
+    # Tag the wedges so the mod can leave them out. They exist to satisfy Fast64's
+    # export, which breaks if a deformable bone has nothing weighted to it. A mod only
+    # replaces display lists, so a limb with nothing to draw can simply draw nothing,
+    # and shipping the wedges puts stray red geometry through the hat.
+    filler_group = kirby.vertex_groups.get("role_filler") or kirby.vertex_groups.new(
+        name="role_filler"
+    )
     for name, idxs in indices.items():
-        group = kirby.vertex_groups.get(FAST64_BONE[name]) or kirby.vertex_groups.new(
-            name=FAST64_BONE[name]
+        group = kirby.vertex_groups.get(BONE_NAME[name]) or kirby.vertex_groups.new(
+            name=BONE_NAME[name]
         )
         group.add(idxs, 1.0, "REPLACE")
+        filler_group.add(idxs, 1.0, "REPLACE")
     return empty
 
 
@@ -271,13 +299,15 @@ def main() -> None:
         sys.exit(1)
     armature = armatures[0]
 
-    problems = verify_against_imported(armature)
+    problems = [] if "Child" in armature.name else verify_against_imported(armature)
     if problems:
         for p in problems:
             print(f"  MISMATCH  {p}")
         print("FAIL: the skeleton does not match the limb table")
         sys.exit(1)
-    print(f"skeleton {armature.name!r}: {len(armature.data.bones)} bones, table agrees")
+    BONE_NAME.update(bone_names(armature))
+    print(f"skeleton {armature.name!r}: {len(armature.data.bones)} bones, "
+          f"{len(BONE_NAME)} recognised")
 
     # Link's own mesh is only here as a reference for the import; drop it.
     for obj in [o for o in bpy.data.objects if o.type == "MESH"]:
