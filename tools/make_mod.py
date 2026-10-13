@@ -356,6 +356,57 @@ def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
     return out
 
 
+# How far to drop both shoulders, in the game's own units, which are a thousandth of a
+# Blender unit. Lowering the shoulders lowers everything hanging off them, and the only
+# thing hanging off them that anyone sees is what Link is holding.
+#
+# Nothing of Kirby's is weighted to the arm chain any more: his mittens ride his body and
+# the bare-hand display lists are empty. So the arm bones exist purely as an attachment
+# point for carried things, and moving them costs nothing visually. Measured on the child
+# skeleton, the hand bone sits at z 2.00 against a ball whose top is 2.19, so a pot was
+# being held above his head; 650 brings it to about his middle.
+#
+# This is pose independent, which the alternative is not. The hand's own joint offset
+# runs along the forearm, so changing it moves the hand in whatever direction the arm
+# happens to be pointing, which is a different direction in every animation.
+SHOULDER_DROP = 650
+
+SHOULDER_LIMBS = {
+    "adult": ("gLinkAdultLeftShoulderLimb", "gLinkAdultRightShoulderLimb"),
+    "child": ("gLinkChildLeftshoulderLimb", "gLinkChildRightshoulderLimb"),
+}
+
+
+def lowered_shoulders(archive: str, age: str, drop: int) -> dict[str, bytes]:
+    """Copies of the shoulder limbs with their joints moved down.
+
+    A limb resource is the game's own 64-byte header, the limb type, its two display list
+    paths as length-prefixed strings, and then eight bytes: the joint position as three
+    signed shorts, then the child and sibling limb indices. Only the joint moves here.
+
+    The stored axes are not world axes. Measured against the imported skeleton, a stored
+    (x, y, z) lands at world (z, -y, x) when the parent is unrotated, so the first short
+    is the one that means up.
+    """
+    import struct
+    import zipfile
+
+    out: dict[str, bytes] = {}
+    with zipfile.ZipFile(archive) as handle:
+        inside = {n.split("/")[-1]: n for n in handle.namelist()}
+        for name in SHOULDER_LIMBS[age]:
+            if name not in inside:
+                print(f"  note: {name} is not in the game archive, leaving the arm alone")
+                continue
+            data = bytearray(handle.read(inside[name]))
+            x, y, z = struct.unpack_from("<3h", data, len(data) - 8)
+            struct.pack_into("<3h", data, len(data) - 8, x - drop, y, z)
+            print(f"  {name}: joint x {x} -> {x - drop}, "
+                  f"dropping that arm {drop / GAME_SCALE:.2f} units")
+            out[name] = bytes(data)
+    return out
+
+
 class LimbBuilder:
     """Collects one limb's triangles and turns them into game resources."""
 
@@ -462,6 +513,8 @@ def main() -> None:
     parser.add_argument("--out", required=True)
     parser.add_argument("--age", choices=["adult", "child"], default="adult",
                         help="which player object this build replaces")
+    parser.add_argument("--game-archive", default=".toolchain/soh/app/oot.o2r",
+                        help="the port's own archive, read for the limbs being adjusted")
     parser.add_argument("--eyes", default="build/eyes",
                         help="where tools/face_textures.py --out put the eye resources")
     parser.add_argument("--child-assets",
@@ -630,6 +683,13 @@ def main() -> None:
     files.update(sheath)
     print(f"{len(sheath)} sheath vertex list(s) scaled to {ratio:.2f} and moved onto his "
           f"back, so the game's own sword and shield ride where they should")
+
+    # Lower both shoulders so a carried pot or bush is held at Kirby's middle rather
+    # than over his head.
+    if SHOULDER_DROP:
+        print("\nlowering the arms:")
+        files.update(lowered_shoulders(os.path.abspath(args.game_archive), args.age,
+                                       SHOULDER_DROP))
 
     hidden = HIDE_HANDS[args.age]
     for name in hidden:
