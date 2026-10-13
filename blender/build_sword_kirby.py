@@ -36,8 +36,13 @@ from link_skeleton import DEFORM  # noqa: E402
 from sword_kirby import BONE_REST, build_reference_armature  # noqa: E402
 
 # Smash 64 textures that make up Link's cap, checked by average colour rather than by
-# guessing from the group names: the two green cloth materials and the gold band.
+# guessing from the group names: the two green cloth materials and the gold fringe.
 CAP_TEXTURES = ("2367eecf", "brim")
+
+# The boomerang, Kirby's Link copy move. It is dropped, and it is excluded when
+# measuring the donor's head so it cannot inflate the reference proportions.
+BOOMERANG_TEXTURES = ("bdd3634",)
+
 
 # Where Kirby sits against the reference rig. Link's head bone is near z 0.92, and
 # Kirby standing 0.84 high reads correctly without overtopping it.
@@ -105,6 +110,44 @@ def uses_cap_texture(material: bpy.types.Material | None) -> bool:
     return False
 
 
+def uses_any(material: bpy.types.Material | None, hints: tuple[str, ...]) -> bool:
+    if material is None or not material.use_nodes:
+        return False
+    for node in material.node_tree.nodes:
+        image = getattr(node, "image", None)
+        if image is None:
+            continue
+        name = os.path.basename(image.filepath or image.name).lower()
+        if any(h in name for h in hints):
+            return True
+    return False
+
+
+def donor_head_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
+    """Bounds of the donor Kirby's own body, with the cap and boomerang left out.
+
+    This is what the cap must be measured against. Using the whole model instead gets
+    it wrong twice over: the boomerang juts out on one side, which both widens the box,
+    making the cap come out too small, and shifts its centre, which slides the cap off
+    to one side of the head.
+    """
+    skip = {
+        i for i, m in enumerate(obj.data.materials)
+        if uses_any(m, CAP_TEXTURES) or uses_any(m, BOOMERANG_TEXTURES)
+    }
+    pts: list[Vector] = []
+    for poly in obj.data.polygons:
+        if poly.material_index in skip:
+            continue
+        for vi in poly.vertices:
+            pts.append(obj.matrix_world @ obj.data.vertices[vi].co)
+    if not pts:
+        raise ValueError("donor has no body left after excluding cap and boomerang")
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return lo, hi
+
+
 def keep_only_cap(obj: bpy.types.Object) -> int:
     """Delete every face of the Smash 64 model that is not part of Link's cap."""
     cap_slots = {i for i, m in enumerate(obj.data.materials) if uses_cap_texture(m)}
@@ -144,20 +187,41 @@ def place_cap(
     """
     donor_width = max(donor_hi.x - donor_lo.x, 1e-6)
     body_width = body_hi.x - body_lo.x
-    # Kirby 64's head is rounder than the Smash 64 one the cap was cut from, so a
-    # straight width match sits the brim across his eyes. Easing it in and lifting it
-    # puts the brim on his forehead and lets the green show.
-    scale = (body_width / donor_width) * 0.90
-    lift = (body_hi.z - body_lo.z) * 0.10
+    # Match the two heads directly. Both are Kirbys of the same build, so the cap that
+    # fitted one fits the other at the ratio of their widths, with no fudge factor: the
+    # reference has the cap overhanging the head slightly at the sides, and shrinking it
+    # to perch on top was an artefact of measuring against the wrong box.
+    scale = body_width / donor_width
+    lift = 0.0
 
-    donor_centre = Vector(((donor_lo.x + donor_hi.x) * 0.5, (donor_lo.y + donor_hi.y) * 0.5, donor_lo.z))
-    body_centre = Vector(((body_lo.x + body_hi.x) * 0.5, (body_lo.y + body_hi.y) * 0.5, body_lo.z))
+    # Read the cap's own box before scaling, so the anchors below are in donor units.
+    raw_lo, raw_hi = world_bounds(cap)
 
     cap.scale = (scale, scale, scale)
     bpy.context.view_layer.update()
+    cap_lo, cap_hi = world_bounds(cap)
+    cap_centre = (cap_lo + cap_hi) * 0.5
 
-    # Where the cap sat on the donor, carried across at the new scale, then lifted.
-    cap.location = body_centre - donor_centre * scale + Vector((0.0, 0.0, lift))
+    donor_size = donor_hi - donor_lo
+    body_size = body_hi - body_lo
+
+    # Sideways and front to back, put the cap where it sits on the donor's head as a
+    # fraction of that head's box, and reproduce the fraction on the new one. Carrying a
+    # scaled absolute offset instead assumes both heads share an origin, and they do not.
+    target = Vector((0.0, 0.0, 0.0))
+    for axis in (0, 1):
+        extent = donor_size[axis]
+        fraction = ((cap_centre[axis] / scale) - donor_lo[axis]) / extent if extent else 0.5
+        target[axis] = body_lo[axis] + fraction * body_size[axis]
+
+    # Vertically, anchor the crown rather than the centre. The cap's box is dominated by
+    # the long tail hanging down the back, so matching box centres drags the whole cap
+    # down until it sinks into the head. How far the cap's peak clears the top of the
+    # head is the measurement that actually holds a hat on, and it carries across.
+    crown_clearance = (raw_hi.z - donor_hi.z) * scale
+    target.z = cap_centre.z + (body_hi.z + crown_clearance) - cap_hi.z
+
+    cap.location = cap.location + (target - cap_centre)
 
     bpy.ops.object.select_all(action="DESELECT")
     cap.select_set(True)
@@ -463,7 +527,8 @@ def assemble(assets_root: str, verbose: bool = True) -> bpy.types.Object:
     body_lo, body_hi = world_bounds(body)
 
     cap = join(import_obj(cap_obj), "Cap")
-    donor_lo, donor_hi = world_bounds(cap)
+    # Measure the donor's head before culling, excluding its cap and boomerang.
+    donor_lo, donor_hi = donor_head_bounds(cap)
     kept = keep_only_cap(cap)
     tag_role(cap, "cap")
     if verbose:

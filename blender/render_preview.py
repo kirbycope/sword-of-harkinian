@@ -17,6 +17,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from flat_shading import flatten_all  # noqa: E402
 from link_skeleton import DEFORM  # noqa: E402
 from sword_kirby import (  # noqa: E402
     BALL_CENTRE,
@@ -45,12 +46,28 @@ def _sun(name: str, rotation: tuple[float, float, float], energy: float) -> None
     bpy.context.scene.collection.objects.link(obj)
 
 
-def _camera(azimuth_deg: float, elevation_deg: float, distance: float) -> bpy.types.Object:
+def _frame(mesh_obj: bpy.types.Object) -> tuple[Vector, float]:
+    """Centre and radius of a mesh, so the camera can frame whatever it is given.
+
+    A fixed camera distance only ever suits one model size. The generated Kirby stood
+    about one unit tall; rigged to Link's skeleton he is over five, and the fixed
+    distance put the camera inside his foot.
+    """
+    bpy.context.view_layer.update()
+    pts = [mesh_obj.matrix_world @ v.co for v in mesh_obj.data.vertices]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return (lo + hi) * 0.5, max((hi - lo).x, (hi - lo).y, (hi - lo).z) * 0.5
+
+
+def _camera(azimuth_deg: float, elevation_deg: float, distance: float,
+            target: Vector | None = None) -> bpy.types.Object:
     import math
 
     az = math.radians(azimuth_deg)
     el = math.radians(elevation_deg)
-    target = Vector((0.0, 0.0, BALL_CENTRE.z))
+    if target is None:
+        target = Vector((0.0, 0.0, BALL_CENTRE.z))
     position = target + Vector((
         math.sin(az) * math.cos(el) * distance,
         -math.cos(az) * math.cos(el) * distance,
@@ -58,7 +75,7 @@ def _camera(azimuth_deg: float, elevation_deg: float, distance: float) -> bpy.ty
     ))
 
     cam_data = bpy.data.cameras.new("Preview")
-    cam_data.lens = 70.0
+    cam_data.lens = 58.0
     cam = bpy.data.objects.new("Preview", cam_data)
     cam.location = position
     direction = (target - position).normalized()
@@ -153,7 +170,10 @@ def render_sheet(out_dir: str, limb_view: bool, blend: str | None = None,
             arm.hide_render = True
         if limb_view:
             _recolour_by_limb(mesh)
-        _camera(azimuth, elevation, 2.6)
+        else:
+            flatten_all(mesh)
+        centre, radius = _frame(mesh)
+        _camera(azimuth, elevation, radius * 4.4, centre)
 
         suffix = "limbs" if limb_view else "shaded"
         path = os.path.join(os.path.abspath(out_dir), f"{prefix}_{name}_{suffix}.png")

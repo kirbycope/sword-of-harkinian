@@ -25,6 +25,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from flat_shading import flatten_all  # noqa: E402
 from link_skeleton import FAST64_BONE  # noqa: E402
 
 # name, then a list of (limb, axis, degrees) applied to the pose.
@@ -108,6 +109,7 @@ def main() -> None:
             sys.exit(1)
         armature, kirby = armatures[0], max(meshes, key=lambda o: len(o.data.vertices))
         armature.hide_render = True
+        flatten_all(kirby)
 
         apply_pose(armature, moves)
 
