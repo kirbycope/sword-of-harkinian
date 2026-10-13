@@ -119,10 +119,13 @@ def main() -> int:
 
     drawing = sum(1 for limb in limbs if limb.draws)
     print(f"# {len(limbs)} limbs, {drawing} of which draw a display list")
-    print("# name, parent, draws, joint position (N64 x, y, z)")
-    for limb in limbs:
+    print("# name, parent, draws, joint position (N64 x, y, z), limb struct, near DL, far DL")
+    for limb, (_name, stem) in zip(limbs, LIMB_FILES):
         parent = f'"{limb.parent}"' if limb.parent else "None"
-        print(f'    ("{limb.name}", {parent}, {limb.draws}, {limb.pos}),')
+        near = f'"{limb.dlists[0]}"' if len(limb.dlists) > 0 else "None"
+        far = f'"{limb.dlists[1]}"' if len(limb.dlists) > 1 else "None"
+        print(f'    ("{limb.name}", {parent}, {limb.draws}, {limb.pos}, '
+              f'"{stem}", {near}, {far}),')
     return 0
 
 

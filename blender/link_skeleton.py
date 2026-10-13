@@ -36,37 +36,43 @@ from __future__ import annotations
 # Fast64 names imported bones "bone{index:03d}_{struct}", so it is the only reliable way
 # to recognise a bone in an imported skeleton. Note the game calls the shins "Leg" and
 # the forearms "Arm", and that the torso limb alone lacks the "Adult" infix.
-LIMBS: list[tuple[str, str | None, bool, tuple[int, int, int], str]] = [
-    ("Root", None, False, (-57, 3377, 0), "gLinkAdultRootLimb"),
-    ("Waist", "Root", True, (0, 0, 0), "gLinkAdultWaistLimb"),
-    ("LowerControl", "Waist", False, (945, 0, 0), "gLinkAdultLowerControlLimb"),
-    ("RightThigh", "LowerControl", True, (-399, 69, -249), "gLinkAdultRightThighLimb"),
-    ("RightShin", "RightThigh", True, (1306, 0, 0), "gLinkAdultRightLegLimb"),
-    ("RightFoot", "RightShin", True, (1256, 5, 11), "gLinkAdultRightFootLimb"),
-    ("LeftThigh", "LowerControl", True, (-396, 76, 264), "gLinkAdultLeftThighLimb"),
-    ("LeftShin", "LeftThigh", True, (1304, 0, 0), "gLinkAdultLeftLegLimb"),
-    ("LeftFoot", "LeftShin", True, (1257, 6, 3), "gLinkAdultLeftFootLimb"),
-    ("UpperControl", "Root", False, (0, 21, -7), "gLinkAdultUpperControlLimb"),
-    ("Head", "UpperControl", True, (1392, -259, 0), "gLinkAdultHeadLimb"),
-    ("Hat", "Head", True, (-298, -700, 0), "gLinkAdultHatLimb"),
-    ("Collar", "UpperControl", True, (0, 0, 0), "gLinkAdultCollarLimb"),
-    ("LeftShoulder", "UpperControl", True, (1039, -172, 680), "gLinkAdultLeftShoulderLimb"),
-    ("LeftForearm", "LeftShoulder", True, (919, 0, 0), "gLinkAdultLeftArmLimb"),
-    ("LeftHand", "LeftForearm", True, (754, 0, 0), "gLinkAdultLeftHandLimb"),
-    ("RightShoulder", "UpperControl", True, (1039, -173, -680), "gLinkAdultRightShoulderLimb"),
-    ("RightForearm", "RightShoulder", True, (919, 0, 0), "gLinkAdultRightArmLimb"),
-    ("RightHand", "RightForearm", True, (754, 0, 0), "gLinkAdultRightHandLimb"),
-    ("Sheath", "UpperControl", True, (978, -692, 342), "gLinkAdultSwordAndSheathLimb"),
-    ("Torso", "UpperControl", True, (0, 0, 0), "gLinkTorsoLimb"),
+LIMBS: list[tuple[str, str | None, bool, tuple[int, int, int], str, str | None, str | None]] = [
+    ("Root", None, False, (-57, 3377, 0), "gLinkAdultRootLimb", None, None),
+    ("Waist", "Root", True, (0, 0, 0), "gLinkAdultWaistLimb", "gLinkAdultWaistNearDL", "gLinkAdultWaistFarDL"),
+    ("LowerControl", "Waist", False, (945, 0, 0), "gLinkAdultLowerControlLimb", None, None),
+    ("RightThigh", "LowerControl", True, (-399, 69, -249), "gLinkAdultRightThighLimb", "gLinkAdultRightThighNearDL", "gLinkAdultRightThighFarDL"),
+    ("RightShin", "RightThigh", True, (1306, 0, 0), "gLinkAdultRightLegLimb", "gLinkAdultRightLegNearDL", "gLinkAdultRightLegFarDL"),
+    ("RightFoot", "RightShin", True, (1256, 5, 11), "gLinkAdultRightFootLimb", "gLinkAdultRightFootNearDL", "gLinkAdultRightFootFarDL"),
+    ("LeftThigh", "LowerControl", True, (-396, 76, 264), "gLinkAdultLeftThighLimb", "gLinkAdultLeftThighNearDL", "gLinkAdultLeftThighFarDL"),
+    ("LeftShin", "LeftThigh", True, (1304, 0, 0), "gLinkAdultLeftLegLimb", "gLinkAdultLeftLegNearDL", "gLinkAdultLeftLegFarDL"),
+    ("LeftFoot", "LeftShin", True, (1257, 6, 3), "gLinkAdultLeftFootLimb", "gLinkAdultLeftFootNearDL", "gLinkAdultLeftFootFarDL"),
+    ("UpperControl", "Root", False, (0, 21, -7), "gLinkAdultUpperControlLimb", None, None),
+    ("Head", "UpperControl", True, (1392, -259, 0), "gLinkAdultHeadLimb", "gLinkAdultHeadNearDL", "gLinkAdultHeadFarDL"),
+    ("Hat", "Head", True, (-298, -700, 0), "gLinkAdultHatLimb", "gLinkAdultHatNearDL", "gLinkAdultHatFarDL"),
+    ("Collar", "UpperControl", True, (0, 0, 0), "gLinkAdultCollarLimb", "gLinkAdultCollarNearDL", "gLinkAdultCollarFarDL"),
+    ("LeftShoulder", "UpperControl", True, (1039, -172, 680), "gLinkAdultLeftShoulderLimb", "gLinkAdultLeftShoulderNearDL", "gLinkAdultLeftShoulderFarDL"),
+    ("LeftForearm", "LeftShoulder", True, (919, 0, 0), "gLinkAdultLeftArmLimb", "gLinkAdultLeftArmNearDL", "gLinkAdultLeftArmFarDL"),
+    ("LeftHand", "LeftForearm", True, (754, 0, 0), "gLinkAdultLeftHandLimb", "gLinkAdultLeftHandNearDL", "gLinkAdultLeftHandFarDL"),
+    ("RightShoulder", "UpperControl", True, (1039, -173, -680), "gLinkAdultRightShoulderLimb", "gLinkAdultRightShoulderNearDL", "gLinkAdultRightShoulderFarDL"),
+    ("RightForearm", "RightShoulder", True, (919, 0, 0), "gLinkAdultRightArmLimb", "gLinkAdultRightArmNearDL", "gLinkAdultRightArmFarDL"),
+    ("RightHand", "RightForearm", True, (754, 0, 0), "gLinkAdultRightHandLimb", "gLinkAdultRightHandNearDL", "gLinkAdultRightHandFarDL"),
+    ("Sheath", "UpperControl", True, (978, -692, 342), "gLinkAdultSwordAndSheathLimb", "gLinkAdultMasterSwordAndSheathNearDL", "gLinkAdultMasterSwordAndSheathFarDL"),
+    ("Torso", "UpperControl", True, (0, 0, 0), "gLinkTorsoLimb", "gLinkAdultTorsoNearDL", "gLinkAdultTorsoFarDL"),
 ]
 
-NAMES = [name for name, _parent, _draws, _pos, _struct in LIMBS]
-DEFORM = [name for name, _parent, draws, _pos, _struct in LIMBS if draws]
-NON_DEFORM = [name for name, _parent, draws, _pos, _struct in LIMBS if not draws]
-PARENT = {name: parent for name, parent, _draws, _pos, _struct in LIMBS}
-JOINT_POS = {name: pos for name, _parent, _draws, pos, _struct in LIMBS}
-STRUCT = {name: struct for name, _parent, _draws, _pos, struct in LIMBS}
-INDEX = {name: i for i, (name, _p, _d, _pos, _s) in enumerate(LIMBS)}
+NAMES = [name for name, _parent, _draws, _pos, _struct, _n, _f in LIMBS]
+DEFORM = [name for name, _parent, draws, _pos, _struct, _n, _f in LIMBS if draws]
+NON_DEFORM = [name for name, _parent, draws, _pos, _struct, _n, _f in LIMBS if not draws]
+PARENT = {name: parent for name, parent, _draws, _pos, _struct, _n, _f in LIMBS}
+JOINT_POS = {name: pos for name, _parent, _draws, pos, _struct, _n, _f in LIMBS}
+STRUCT = {name: struct for name, _parent, _draws, _pos, struct, _n, _f in LIMBS}
+# The display lists each limb draws, near and far. A mod replaces these by name,
+# and three of them are not what the limb's own name suggests: the shins are
+# "Leg", the sheath is "MasterSwordAndSheath", and the torso's lists carry the
+# "gLinkAdult" prefix although its limb struct does not.
+NEAR_DL = {name: near for name, _p, _d, _pos, _s, near, _f in LIMBS}
+FAR_DL = {name: far for name, _p, _d, _pos, _s, _n, far in LIMBS}
+INDEX = {name: i for i, (name, _p, _d, _pos, _s, _n, _f) in enumerate(LIMBS)}
 
 # What Fast64 calls each bone after importing the skeleton.
 FAST64_BONE = {name: f"bone{INDEX[name]:03d}_{STRUCT[name]}" for name in NAMES}
@@ -111,7 +117,7 @@ def verify_against_imported(armature_obj) -> list[str]:
         else:
             by_limb[limb] = bone
 
-    for name, parent, draws, _pos, _struct in LIMBS:
+    for name, parent, draws, _pos, _struct, _n, _f in LIMBS:
         bone = by_limb.get(name)
         if bone is None:
             problems.append(f"imported skeleton has no bone for limb {name!r}")
