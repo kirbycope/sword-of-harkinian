@@ -15,12 +15,12 @@ round trip and packing.
 
 | Piece | State |
 | --- | --- |
-| Link's limb table, derived from extracted game data | Done, and self-checking |
-| Sword Kirby, assembled and rigged across all 21 limbs | Done, 418 vertices, 598 triangles |
-| Preview renders, four angles plus a limb-ownership view | Done, in `docs/preview` |
+| Link's limb table, derived from extracted game data | Done, and verified against the real import |
 | Asset extraction from the ROM | Done, `decomp/extracted/ntsc-1.2` |
-| Fast64 skeleton import, and binding Kirby to the real rig | Next |
-| Export, and packing the mod as an o2r | Not started |
+| Fast64 skeleton import of Adult Link | Done, 21 bones, table agrees |
+| Sword Kirby, assembled and rigged to the real skeleton | Done, 490 vertices, 706 triangles |
+| Pose tests proving the weights follow the bones | Done, in `docs/preview/pose` |
+| Export, and packing the mod as an o2r | Next |
 | Running it in Ship of Harkinian 9.3.0 | Not started |
 
 ## Where Kirby comes from
@@ -123,12 +123,56 @@ Two limbs do the costume almost by themselves. The cap goes on `PLAYER_LIMB_HAT`
 already trails behind the head, and the sword rides `PLAYER_LIMB_SHEATH` on his back. A
 held sword lives in the hand mesh, so a mitten inherits the grip.
 
+## How he is rigged
+
+`rig_to_link.py` weights Kirby against the skeleton Fast64 imported from the
+decompilation, not against his own bounding box. Each piece is identified by what it is,
+carried from assembly as a role tag, and then matched to the nearest real bone of a
+plausible set, measured to the bone segment rather than to its head. The feet find Link's
+foot bones, the mittens find his hands, the sword goes with the hand that holds it.
+
+The body ball is the exception, and it is worth saying why rather than pretending the
+rule is uniform. Kirby has no neck. Splitting the ball across Link's spine tears him in
+half the moment those bones rotate, because the weights are rigid and nothing blends
+across the seam. A 55 degree head turn separated his crown from his face entirely. So
+the whole ball rides the single spine bone whose pivot sits nearest the ball's centre,
+which turns out to be the torso. The cap has to ride that bone too: Link's hat bone is a
+child of his head, so leaving the cap there would swing it off a ball that no longer
+follows the head.
+
+The cost is that Kirby does not turn his head independently during Z-targeting. For a
+character who is one sphere that is the right trade, since a ball swinging off a pivot
+near its crown looks far worse than a ball that does not glance sideways.
+
+Limbs Kirby has nothing to give, the thighs, shins, shoulders and sheath, get a small
+wedge hidden inside the body at the real bone, pulled in toward the centre so it stays
+buried. Link's actor misbehaves if a deformable bone has nothing weighted to it.
+
+### Checking it
+
+`pose_test.py` poses the skeleton and renders, because a rest pose says nothing about
+rigging. Each pose checks one thing that would be wrong in the game:
+
+```powershell
+& 'C:\Program Files\Blender Foundation\Blender 4.5\blender.exe' --background `
+  --python blender/pose_test.py -- --blend build/sword_kirby_rigged.blend --out docs/preview/pose
+```
+
+| Pose | Proves |
+| --- | --- |
+| Head turned | He does not tear at a seam |
+| Sword arm raised | The blade travels with the hand instead of hanging in the air |
+| Legs swung apart | His feet move while the ball stays put, which is what walking looks like |
+
 ## Layout
 
 | Path | Holds |
 | --- | --- |
 | `blender/link_skeleton.py` | Link's limb table, and a check against a real import |
-| `blender/sword_kirby.py` | The model generator |
+| `blender/import_link_skeleton.py` | Imports Adult Link with Fast64 and verifies the table |
+| `blender/build_sword_kirby.py` | Assembles Kirby from the three ripped models |
+| `blender/rig_to_link.py` | Weights him to the real skeleton |
+| `blender/pose_test.py` | Poses the skeleton to prove the weights follow |
 | `blender/render_preview.py` | Preview and limb-ownership renders |
 | `docs/preview/` | Rendered previews |
 | `mod/` | The o2r contents |

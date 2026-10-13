@@ -284,7 +284,7 @@ def build_reference_armature(name: str = "SwordKirbySkel") -> bpy.types.Object:
     bpy.ops.object.mode_set(mode="EDIT")
 
     created: dict[str, bpy.types.EditBone] = {}
-    for limb_name, _parent, draws, _pos in LIMBS:
+    for limb_name, _parent, draws, _pos, _struct in LIMBS:
         head, tail = BONE_REST[limb_name]
         bone = arm_data.edit_bones.new(limb_name)
         bone.head = Vector(head)
@@ -292,7 +292,7 @@ def build_reference_armature(name: str = "SwordKirbySkel") -> bpy.types.Object:
         bone.use_deform = draws
         created[limb_name] = bone
 
-    for limb_name, parent, _draws, _pos in LIMBS:
+    for limb_name, parent, _draws, _pos, _struct in LIMBS:
         if parent is not None:
             created[limb_name].parent = created[parent]
 

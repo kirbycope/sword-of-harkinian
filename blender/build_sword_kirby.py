@@ -374,6 +374,112 @@ def fill_empty(obj: bpy.types.Object, counts: dict[str, int]) -> list[str]:
     return empty
 
 
+# Role tags carried from assembly into rigging. They are written as vertex groups
+# because a join merges vertex groups by name, while vertex indices are renumbered.
+ROLE_PREFIX = "role_"
+ROLES = ("feet", "arms", "ball", "cap", "sword")
+
+
+def tag_role(obj: bpy.types.Object, role: str) -> None:
+    group = obj.vertex_groups.new(name=ROLE_PREFIX + role)
+    group.add([v.index for v in obj.data.vertices], 1.0, "REPLACE")
+
+
+def roles_of(obj: bpy.types.Object) -> dict[str, set[int]]:
+    """Read the role tags back off the joined mesh."""
+    index_of = {g.index: g.name for g in obj.vertex_groups}
+    out: dict[str, set[int]] = {r: set() for r in ROLES}
+    for v in obj.data.vertices:
+        for g in v.groups:
+            name = index_of.get(g.group, "")
+            if name.startswith(ROLE_PREFIX):
+                role = name[len(ROLE_PREFIX):]
+                if role in out:
+                    out[role].add(v.index)
+    return out
+
+
+def classify_body_parts(parts: list[bpy.types.Object]) -> dict[str, bpy.types.Object]:
+    """Work out which of the Kirby 64 objects are the feet, the arms and the ball.
+
+    The rip arrives as three objects. The feet are the ones using the foot texture. Of
+    the two that remain, the arms are the wider: the mittens reach further out than the
+    ball does. Reading it off the model this way beats hardcoding the exporter's object
+    names, which are bare numbers.
+    """
+    feet = None
+    rest = []
+    for o in parts:
+        textures = []
+        for m in o.data.materials:
+            if m and m.use_nodes:
+                for node in m.node_tree.nodes:
+                    img = getattr(node, "image", None)
+                    if img is not None:
+                        textures.append(os.path.basename(img.filepath or img.name).lower())
+        if any("foot" in t for t in textures):
+            feet = o
+        else:
+            rest.append(o)
+
+    if feet is None or len(rest) != 2:
+        raise ValueError(
+            f"expected one foot object and two others, got feet={feet} rest={len(rest)}"
+        )
+
+    def width(o: bpy.types.Object) -> float:
+        lo, hi = world_bounds(o)
+        return hi.x - lo.x
+
+    rest.sort(key=width, reverse=True)
+    return {"feet": feet, "arms": rest[0], "ball": rest[1]}
+
+
+def assemble(assets_root: str, verbose: bool = True) -> bpy.types.Object:
+    """Build the character into the current scene, without rigging it.
+
+    The returned mesh carries a role vertex group per part, which the rigger uses to
+    decide limb ownership by what a piece is rather than by where it lands in a box.
+    """
+    root = os.path.abspath(assets_root)
+    body_obj = os.path.join(root, "kirby64", "k64", "Kirby", "kirby.obj")
+    cap_obj = os.path.join(root, "ssb64", "extracted", "kirbylink.obj")
+    sword_obj = os.path.join(root, "kirby64", "sword", "burncuttersword.obj")
+    for p in (body_obj, cap_obj, sword_obj):
+        if not os.path.isfile(p):
+            raise FileNotFoundError(
+                f"missing {p}. Fetch the models from The Models Resource; "
+                "see 'Where Kirby comes from' in README.md."
+            )
+
+    parts = classify_body_parts(import_obj(body_obj))
+    for role, obj in parts.items():
+        tag_role(obj, role)
+        if verbose:
+            tris = sum(len(p.vertices) - 2 for p in obj.data.polygons)
+            print(f"  {role:<6} {len(obj.data.vertices):>4} verts  {tris:>4} tris")
+
+    body = join(list(parts.values()), "Body")
+    body_lo, body_hi = world_bounds(body)
+
+    cap = join(import_obj(cap_obj), "Cap")
+    donor_lo, donor_hi = world_bounds(cap)
+    kept = keep_only_cap(cap)
+    tag_role(cap, "cap")
+    if verbose:
+        print(f"  cap    {len(cap.data.vertices):>4} verts  {kept:>4} tris   Smash 64")
+    place_cap(cap, donor_lo, donor_hi, body_lo, body_hi)
+
+    sword = join(import_obj(sword_obj), "Sword")
+    tag_role(sword, "sword")
+    if verbose:
+        tris = sum(len(p.vertices) - 2 for p in sword.data.polygons)
+        print(f"  sword  {len(sword.data.vertices):>4} verts  {tris:>4} tris   Kirby 64")
+    place_sword(sword, body, body_lo, body_hi)
+
+    return join([body, cap, sword], "SwordKirby")
+
+
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()

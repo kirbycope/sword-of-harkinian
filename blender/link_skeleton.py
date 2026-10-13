@@ -30,36 +30,58 @@ pose rotations Fast64 carries for this skeleton.
 
 from __future__ import annotations
 
-# name, parent, draws a display list, joint position in game units (x, y, z)
-LIMBS: list[tuple[str, str | None, bool, tuple[int, int, int]]] = [
-    ("Root", None, False, (-57, 3377, 0)),
-    ("Waist", "Root", True, (0, 0, 0)),
-    ("LowerControl", "Waist", False, (945, 0, 0)),
-    ("RightThigh", "LowerControl", True, (-399, 69, -249)),
-    ("RightShin", "RightThigh", True, (1306, 0, 0)),
-    ("RightFoot", "RightShin", True, (1256, 5, 11)),
-    ("LeftThigh", "LowerControl", True, (-396, 76, 264)),
-    ("LeftShin", "LeftThigh", True, (1304, 0, 0)),
-    ("LeftFoot", "LeftShin", True, (1257, 6, 3)),
-    ("UpperControl", "Root", False, (0, 21, -7)),
-    ("Head", "UpperControl", True, (1392, -259, 0)),
-    ("Hat", "Head", True, (-298, -700, 0)),
-    ("Collar", "UpperControl", True, (0, 0, 0)),
-    ("LeftShoulder", "UpperControl", True, (1039, -172, 680)),
-    ("LeftForearm", "LeftShoulder", True, (919, 0, 0)),
-    ("LeftHand", "LeftForearm", True, (754, 0, 0)),
-    ("RightShoulder", "UpperControl", True, (1039, -173, -680)),
-    ("RightForearm", "RightShoulder", True, (919, 0, 0)),
-    ("RightHand", "RightForearm", True, (754, 0, 0)),
-    ("Sheath", "UpperControl", True, (978, -692, 342)),
-    ("Torso", "UpperControl", True, (0, 0, 0)),
+# name, parent, draws a display list, joint position in game units (x, y, z), limb struct
+#
+# The struct name is the identifier the decompilation gives that limb. It matters because
+# Fast64 names imported bones "bone{index:03d}_{struct}", so it is the only reliable way
+# to recognise a bone in an imported skeleton. Note the game calls the shins "Leg" and
+# the forearms "Arm", and that the torso limb alone lacks the "Adult" infix.
+LIMBS: list[tuple[str, str | None, bool, tuple[int, int, int], str]] = [
+    ("Root", None, False, (-57, 3377, 0), "gLinkAdultRootLimb"),
+    ("Waist", "Root", True, (0, 0, 0), "gLinkAdultWaistLimb"),
+    ("LowerControl", "Waist", False, (945, 0, 0), "gLinkAdultLowerControlLimb"),
+    ("RightThigh", "LowerControl", True, (-399, 69, -249), "gLinkAdultRightThighLimb"),
+    ("RightShin", "RightThigh", True, (1306, 0, 0), "gLinkAdultRightLegLimb"),
+    ("RightFoot", "RightShin", True, (1256, 5, 11), "gLinkAdultRightFootLimb"),
+    ("LeftThigh", "LowerControl", True, (-396, 76, 264), "gLinkAdultLeftThighLimb"),
+    ("LeftShin", "LeftThigh", True, (1304, 0, 0), "gLinkAdultLeftLegLimb"),
+    ("LeftFoot", "LeftShin", True, (1257, 6, 3), "gLinkAdultLeftFootLimb"),
+    ("UpperControl", "Root", False, (0, 21, -7), "gLinkAdultUpperControlLimb"),
+    ("Head", "UpperControl", True, (1392, -259, 0), "gLinkAdultHeadLimb"),
+    ("Hat", "Head", True, (-298, -700, 0), "gLinkAdultHatLimb"),
+    ("Collar", "UpperControl", True, (0, 0, 0), "gLinkAdultCollarLimb"),
+    ("LeftShoulder", "UpperControl", True, (1039, -172, 680), "gLinkAdultLeftShoulderLimb"),
+    ("LeftForearm", "LeftShoulder", True, (919, 0, 0), "gLinkAdultLeftArmLimb"),
+    ("LeftHand", "LeftForearm", True, (754, 0, 0), "gLinkAdultLeftHandLimb"),
+    ("RightShoulder", "UpperControl", True, (1039, -173, -680), "gLinkAdultRightShoulderLimb"),
+    ("RightForearm", "RightShoulder", True, (919, 0, 0), "gLinkAdultRightArmLimb"),
+    ("RightHand", "RightForearm", True, (754, 0, 0), "gLinkAdultRightHandLimb"),
+    ("Sheath", "UpperControl", True, (978, -692, 342), "gLinkAdultSwordAndSheathLimb"),
+    ("Torso", "UpperControl", True, (0, 0, 0), "gLinkTorsoLimb"),
 ]
 
-NAMES = [name for name, _parent, _draws, _pos in LIMBS]
-DEFORM = [name for name, _parent, draws, _pos in LIMBS if draws]
-NON_DEFORM = [name for name, _parent, draws, _pos in LIMBS if not draws]
-PARENT = {name: parent for name, parent, _draws, _pos in LIMBS}
-JOINT_POS = {name: pos for name, _parent, _draws, pos in LIMBS}
+NAMES = [name for name, _parent, _draws, _pos, _struct in LIMBS]
+DEFORM = [name for name, _parent, draws, _pos, _struct in LIMBS if draws]
+NON_DEFORM = [name for name, _parent, draws, _pos, _struct in LIMBS if not draws]
+PARENT = {name: parent for name, parent, _draws, _pos, _struct in LIMBS}
+JOINT_POS = {name: pos for name, _parent, _draws, pos, _struct in LIMBS}
+STRUCT = {name: struct for name, _parent, _draws, _pos, struct in LIMBS}
+INDEX = {name: i for i, (name, _p, _d, _pos, _s) in enumerate(LIMBS)}
+
+# What Fast64 calls each bone after importing the skeleton.
+FAST64_BONE = {name: f"bone{INDEX[name]:03d}_{STRUCT[name]}" for name in NAMES}
+
+
+def limb_of_bone(bone_name: str) -> str | None:
+    """Map an imported bone back to this table's short limb name.
+
+    Matching on the struct name rather than the whole bone name keeps this working if
+    Fast64 ever changes how it numbers or prefixes bones.
+    """
+    for name in NAMES:
+        if bone_name == FAST64_BONE[name] or bone_name.endswith(STRUCT[name]):
+            return name
+    return None
 
 assert len(LIMBS) == 21, "object_link_boy.xml declares exactly 21 limbs"
 assert len(DEFORM) == 18, "gLinkAdultSkel declares dListCount 18"
@@ -69,6 +91,7 @@ assert NON_DEFORM == ["Root", "LowerControl", "UpperControl"], (
 )
 assert [n for n in NAMES if PARENT[n] is None] == ["Root"], "Root alone has no parent"
 assert set(PARENT.values()) <= set(NAMES) | {None}, "every parent must be a known limb"
+assert len(set(STRUCT.values())) == 21, "every limb has its own struct name"
 
 
 def verify_against_imported(armature_obj) -> list[str]:
@@ -79,14 +102,22 @@ def verify_against_imported(armature_obj) -> list[str]:
     model is weighted against a skeleton the game does not have.
     """
     problems: list[str] = []
-    bones = {b.name: b for b in armature_obj.data.bones}
+    by_limb = {}
+    unknown = []
+    for bone in armature_obj.data.bones:
+        limb = limb_of_bone(bone.name)
+        if limb is None:
+            unknown.append(bone.name)
+        else:
+            by_limb[limb] = bone
 
-    for name, parent, draws, _pos in LIMBS:
-        bone = bones.get(name)
+    for name, parent, draws, _pos, _struct in LIMBS:
+        bone = by_limb.get(name)
         if bone is None:
-            problems.append(f"imported skeleton has no bone named {name!r}")
+            problems.append(f"imported skeleton has no bone for limb {name!r}")
             continue
-        actual_parent = bone.parent.name if bone.parent else None
+
+        actual_parent = limb_of_bone(bone.parent.name) if bone.parent else None
         if actual_parent != parent:
             problems.append(
                 f"{name}: table says parent {parent!r}, import says {actual_parent!r}"
@@ -96,7 +127,6 @@ def verify_against_imported(armature_obj) -> list[str]:
                 f"{name}: table says deform={draws}, import says {bone.use_deform}"
             )
 
-    extra = sorted(set(bones) - set(NAMES))
-    if extra:
-        problems.append(f"imported skeleton has bones the table does not: {extra}")
+    if unknown:
+        problems.append(f"imported skeleton has bones the table does not: {unknown}")
     return problems
