@@ -45,18 +45,9 @@ __pycache__/
 /decomp-ssb64/
 /decomp-k64/
 
-# Capture frames and film from driving the game are never committed: every subfolder of
-# docs/preview is ignored except the two small curated sets, and the curated single
-# images at the top of docs/preview (final_*.png and the earlier comparisons) are the
-# only pictures that go in.
-/docs/preview/*/
-!/docs/preview/pose/
-!/docs/preview/angles/
-/docs/preview/v[0-9]*_*.png
-/docs/preview/frame*.png
-/docs/preview/*.mp4
-!/docs/preview/kirby_idle.mp4
-/docs/preview/*.png
+# Nothing under docs/preview is committed except the curated final shots. Every render,
+# capture frame and film the tools write there is scratch.
+/docs/preview/*
 !/docs/preview/final_*.png
 
 # Audio decoded out of the source ROMs. Same rule as the ripped models: the scripts that
