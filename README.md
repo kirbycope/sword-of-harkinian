@@ -243,7 +243,7 @@ the game's own blob, whatever the bytes: a blob copied unchanged into `alt/` at 
 path reproduces it. So the build never overrides animation data. Each rewritten blob goes
 under `misc/link_animetion/kirby/<name>`, a path the base game has no twin of, and only
 the small `LinkAnimationHeader` that names it is overridden, with its segment string
-pointing at the copy. `docs/preview/walkbisect/` holds the nine runs that found it.
+pointing at the copy. Nine bisect runs found it; the decisive pair is written up in Shipwright issue 7402 (https://github.com/HarbourMasters/Shipwright/issues/7402), and the Metal limb crash in issue 7401.
 
 ## His feet are Link's foot joints too
 
