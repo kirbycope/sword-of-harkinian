@@ -43,7 +43,7 @@ hand, and the pause screen's Equipment page posed to match.
 ## Getting him into the game
 
 Ship of Harkinian loads custom assets from `.o2r` archives in its `mods` folder. An
-archive is a zip; a file at `alt/<path>` replaces the game's own resource at `<path>`,
+archive is a zip; a file at `alt/` plus a resource path replaces the game's own resource at that path,
 and the port reads XML display lists, vertex lists, textures and materials, so the whole
 mod is generated text plus the animation data. `tools/make_mod.py` writes it straight
 from the rigged Blender file; no ROM build and no retro.
@@ -241,7 +241,7 @@ Ship of Harkinian 9.3.0 draws the player wrong, tipped, sunk or not at all, for 
 two at every animation change when the animation data comes from a mod archive in place of
 the game's own blob, whatever the bytes: a blob copied unchanged into `alt/` at its own
 path reproduces it. So the build never overrides animation data. Each rewritten blob goes
-under `misc/link_animetion/kirby/<name>`, a path the base game has no twin of, and only
+under `misc/link_animetion/kirby/` with the blob's own name, a path the base game has no twin of, and only
 the small `LinkAnimationHeader` that names it is overridden, with its segment string
 pointing at the copy. Nine bisect runs found it; the decisive pair is written up in Shipwright issue 7402 (https://github.com/HarbourMasters/Shipwright/issues/7402), and the Metal limb crash in issue 7401.
 
