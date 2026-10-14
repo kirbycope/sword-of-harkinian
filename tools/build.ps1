@@ -40,7 +40,7 @@ foreach ($age in $ages) {
     '--', '--skeleton', $age.Skel, '--out', $age.Rig)
 
   Run "pack $($age.Name)" @('--background', '--python', 'tools/make_mod.py',
-    '--', '--blend', $age.Rig, '--age', $age.Name, '--out', "dist/kirby_$($age.Name).o2r")
+    '--', '--blend', $age.Rig, '--age', $age.Name, '--out', "dist/kirby_$($age.Name).o2r", '--stub-empty')
 }
 
 if (-not $SkipInstall) {

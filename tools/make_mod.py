@@ -35,15 +35,75 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "blender"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from link_skeleton import DEFORM, FAR_DL, NEAR_DL, limb_of_bone  # noqa: E402
+from carry_fk import all_animations, hand_offset, shield_hang  # noqa: E402
+from mitten_hands import hand_textures, mitten_vertex_lists  # noqa: E402
+
+# How far a sword-swinging hand travels, as a fraction of Link's own shoulder-to-hand
+# vector, around its mitten. One is Link's arc; Kirby's arms are stubs.
+SWING_REACH = 0.2
 
 # Limbs this mod does not touch. The sheath keeps its vanilla display list so the
 # sword and scabbard the game gives Link still appear; Kirby carries none of his own.
 LEAVE_ALONE = ("Sheath",)
 
-# An empty display list is legal, and it is how a limb this character does not have is
-# hidden: the vanilla limb then draws nothing at all.
+# How a limb this character does not have is hidden.
+#
+# An empty list, nothing but EndDisplayList, is the obvious answer and it is what this
+# shipped with for a long time. It is also what the published 3DS Link mod pointedly does
+# NOT do: its smallest list is 349 bytes, for a shoulder, and rather than being empty it
+# draws a single degenerate triangle. Somebody solved this before me and chose a stub.
+#
+# That matters because a list with no commands at all is exactly the kind of thing one
+# renderer backend tolerates and another runs off the end of, and the same archives that
+# play fine on the DirectX build crash the Metal one inside the skeleton walk, at the
+# frame where it loads a display list by name. So the stub is the safer shape, it costs
+# three vertices that cover no area and draw nothing, and it matches what is known to work.
 EMPTY_DL = '<DisplayList Version="0">\n\t<EndDisplayList/>\n</DisplayList>\n'
+
+
+def animation_headers(archive_path: str) -> dict[str, list[tuple[str, bytes]]]:
+    """For each animation data path, the header resources rewritten to point at the copy
+    this mod ships under misc/link_animetion/kirby/, keyed by the data's original path."""
+    out: dict[str, list[tuple[str, bytes]]] = {}
+    with zipfile.ZipFile(archive_path) as game:
+        for path in game.namelist():
+            if not path.startswith("objects/gameplay_keep/gPlayerAnim_"):
+                continue
+            raw = game.read(path)
+            if struct.unpack_from("<I", raw, 64)[0] != 1:
+                continue
+            length = struct.unpack_from("<I", raw, 70)[0]
+            segment = raw[74:74 + length].decode("utf8", "replace")
+            data_path = segment.replace("__OTR__", "")
+            renamed = "__OTR__misc/link_animetion/kirby/" + data_path.split("/")[-1]
+            header = bytearray(raw[:70]) + struct.pack("<I", len(renamed)) + renamed.encode() + raw[74 + length:]
+            out.setdefault(data_path, []).append((path, bytes(header)))
+    return out
+
+
+def stub_display_list(name: str, obj: str, material: str) -> tuple[str, str, str]:
+    """A list that draws one triangle of zero area, which is to say nothing at all.
+
+    Returns the display list, the name of the vertex list it needs, and that list. All
+    three vertices sit on the limb's own origin, so the triangle has no area and the
+    rasteriser discards it, but the list itself is a real one with real commands in it.
+    """
+    vtx_name = f"{name}KirbyStubVtx"
+    vertices = "\n".join(
+        '\t<Vtx X="0" Y="0" Z="0" S="0" T="0" R="0" G="0" B="127" A="255"/>'
+        for _ in range(3))
+    vtx_xml = f'<Vertex Version="0">\n{vertices}\n</Vertex>\n'
+    dl_xml = (
+        '<DisplayList Version="0">\n'
+        f'\t<CallDisplayList Path="{obj}/{material}"/>\n'
+        f'\t<LoadVertices Path="{obj}/{vtx_name}" VertexBufferIndex="0" '
+        'VertexOffset="0" Count="3"/>\n'
+        '\t<Triangle1 V00="0" V01="1" V02="2" Flag0="0"/>\n'
+        '\t<EndDisplayList/>\n'
+        '</DisplayList>\n')
+    return dl_xml, vtx_name, vtx_xml
 
 # The hand limb's own display list is not the only thing drawn at the hand bone, and
 # this is the trap that leaves two skin-coloured lumps hanging in the air beside a short
@@ -227,6 +287,13 @@ FACE_SEGMENT = ">0x08000000"
 FACE_TILE = (64, 32)
 
 
+# Textures that should draw at their own colour rather than being multiplied by the
+# lighting. Empty on purpose: the shoes were in here for a while, on the theory that a
+# dark underside read as a hole, and it turned out the hole was back-face culling and
+# the unlit shoe was just too bright. Everything lights the same way now.
+FLAT_TEXTURES: tuple[str, ...] = ()
+
+
 def material_xml(texture_name: str, obj: str, width: int, height: int,
                  path: str | None = None, clamp: bool = False) -> str:
     """The tile and combiner setup for one texture.
@@ -246,6 +313,14 @@ def material_xml(texture_name: str, obj: str, width: int, height: int,
     # fold a cheek round onto the far side of his head at the seam.
     wrap = "G_TX_CLAMP" if clamp else "G_TX_WRAP"
 
+    # The colour combiner's first cycle computes (A - B) * C + D. The usual form here is
+    # TEXEL0 * SHADE, which is the texture lit by the vertex normal. For a flat material
+    # everything but D is zero, so the texture comes through at its own brightness.
+    if texture_name in FLAT_TEXTURES:
+        colour = ('A0="G_CCMUX_0" B0="G_CCMUX_0" C0="G_CCMUX_0" D0="G_CCMUX_TEXEL0"')
+    else:
+        colour = ('A0="G_CCMUX_TEXEL0" B0="G_CCMUX_0" C0="G_CCMUX_SHADE" D0="G_CCMUX_0"')
+
     return f"""<DisplayList Version="0">
 \t<PipeSync/>
 \t<SetTextureLUT Mode="G_TT_NONE"/>
@@ -257,10 +332,10 @@ def material_xml(texture_name: str, obj: str, width: int, height: int,
 \t<PipeSync/>
 \t<SetTile Format="G_IM_FMT_RGBA" Size="G_IM_SIZ_16b" Line="{row_words}" TMem="0" Tile="0" Palette="0" Cms0="{wrap}" Cms1="G_TX_NOMIRROR" Cmt0="{wrap}" Cmt1="G_TX_NOMIRROR" MaskS="{mask_s}" ShiftS="0" MaskT="{mask_t}" ShiftT="0"/>
 \t<SetTileSize T="0" Uls="0" Ult="0" Lrs="{(width - 1) * 4}" Lrt="{(height - 1) * 4}"/>
-\t<SetCombineLERP A0="G_CCMUX_TEXEL0" B0="G_CCMUX_0" C0="G_CCMUX_SHADE" D0="G_CCMUX_0" Aa0="G_ACMUX_0" Ab0="G_ACMUX_0" Ac0="G_ACMUX_0" Ad0="G_ACMUX_1" A1="G_CCMUX_COMBINED" B1="G_CCMUX_0" C1="G_CCMUX_PRIMITIVE" D1="G_CCMUX_0" Aa1="G_ACMUX_0" Ab1="G_ACMUX_0" Ac1="G_ACMUX_0" Ad1="G_ACMUX_COMBINED"/>
+\t<SetCombineLERP {colour} Aa0="G_ACMUX_0" Ab0="G_ACMUX_0" Ac0="G_ACMUX_0" Ad0="G_ACMUX_1" A1="G_CCMUX_COMBINED" B1="G_CCMUX_0" C1="G_CCMUX_PRIMITIVE" D1="G_CCMUX_0" Aa1="G_ACMUX_0" Ab1="G_ACMUX_0" Ac1="G_ACMUX_0" Ad1="G_ACMUX_COMBINED"/>
 \t<SetRenderMode Mode1="G_RM_FOG_SHADE_A" Mode2="G_RM_AA_ZB_OPA_SURF2" />
-\t<ClearGeometryMode G_CULL_FRONT="1" G_TEXTURE_GEN="1" G_TEXTURE_GEN_LINEAR="1"/>
-\t<SetGeometryMode G_CULL_BACK="1" G_FOG="1" G_LIGHTING="1" G_SHADE="1" G_SHADING_SMOOTH="1" G_ZBUFFER="1"/>
+\t<ClearGeometryMode G_CULL_FRONT="1" G_CULL_BACK="1" G_TEXTURE_GEN="1" G_TEXTURE_GEN_LINEAR="1"/>
+\t<SetGeometryMode G_FOG="1" G_LIGHTING="1" G_SHADE="1" G_SHADING_SMOOTH="1" G_ZBUFFER="1"/>
 \t<SetPrimColor M="0" L="0" R="255" G="255" B="255" A="255"/>
 \t<EndDisplayList/>
 </DisplayList>
@@ -270,8 +345,35 @@ def material_xml(texture_name: str, obj: str, width: int, height: int,
 SHEATH_BONES = {"adult": "SwordAndSheath", "child": "SwordAndSheath"}
 
 
-def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
-                    ratio: float, body_material: str = "") -> dict[str, str]:
+def archive_vertex_names(object_dir: str) -> dict[str, str]:
+    """The name the game archive gives each vertex array, keyed by its decomp name.
+
+    The decomp names a vertex array after what it draws, `gLinkChildDekuShieldSwordAnd
+    SheathNearVtx`, but Ship of Harkinian's own extraction did not carry those names
+    across: in `oot.o2r` the array is `object_link_childVtx_00CAA0`, the object's name and
+    the array's offset in it, and the binary display lists refer to it by a hash of that
+    path. An override shipped under the decomp name is therefore never read, however
+    right it is; the sheath lists were shipped that way for a day and the game drew the
+    vanilla sheath throughout. The offsets are in the decomp's extraction XML, so a list
+    is shipped under both names and the one the game asks for is there.
+    """
+    import re
+
+    obj = os.path.basename(os.path.normpath(object_dir))
+    xml = os.path.normpath(os.path.join(object_dir, *([".."] * 5), "assets", "xml", "objects",
+                                        obj + ".xml"))
+    if not os.path.exists(xml):
+        print(f"  no extraction XML at {xml}; vertex lists ship under their decomp names only")
+        return {}
+    names: dict[str, str] = {}
+    for m in re.finditer(r'<Array\s+Name="(\w+)"[^>]*Offset="0x([0-9A-Fa-f]+)"',
+                         open(xml, encoding="utf8").read()):
+        names[m.group(1)] = f"{obj}Vtx_{int(m.group(2), 16):06X}"
+    return names
+
+
+def sheath_vertices(object_dir: str, kirby, torso_to_bone, ratio: float,
+                    game_archive: str, age: str, body_material: str = "") -> dict[str, str]:
     """Move the game's own sheathed sword and shield onto Kirby's back.
 
     The sheath limb keeps its vanilla display lists, so whatever the player has equipped
@@ -285,21 +387,26 @@ def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
     A display list names its vertices by resource path, so shipping a moved copy of the
     vertex list under the same name moves the drawing without touching the list itself,
     and every variant can be handled the same way. Each is scaled by how much shorter
-    Kirby is and then put back against the ball's own back, measured from his geometry
-    in the sheath bone's frame rather than from a guessed offset.
+    Kirby is and then put back against the ball's own back.
+
+    Where the ball is, seen from the sheath limb, is measured in the game's standing idle
+    through the same limb walk the game uses (carry_fk.idle_pose), never in Blender's rest
+    pose. The rest pose has every limb at zero rotation; the sheath limb idles at
+    (-90, 150, -4) degrees, so the two disagree by a quarter turn and a body height, and
+    a set placed against the rest-pose ball comes out in the game riding on the hat with
+    the shield facing forward. In the idle Link's own set already lies flat on his back
+    with the scabbard down his spine, so it is not turned at all: only scaled, pushed
+    straight back until it clears the ball's back-most point, and centred on the ball.
     """
     import glob
     import re
 
-    bone = armature.data.bones.get(limb_bone)
-    if bone is None:
-        return {}
-    to_bone = (armature.matrix_world @ bone.matrix_local).inverted()
+    from carry_fk import apply, idle_pose, invert_rigid
 
-    # Kirby's body in the sheath bone's own frame, in the game's units.
-    # His body, and only his body. Measuring his whole bounding box instead puts the
-    # sheath behind the cap's tail, which reaches a long way past the back of the ball,
-    # and it then floats a clear gap behind him.
+    # Kirby's body in the torso limb's own frame, in the game's units, which is how the
+    # game draws it. His body, and only his body: the cap's tail reaches a long way past
+    # the back of the ball, and a bounding box that includes it floats the set a clear
+    # gap behind him.
     wanted = {i for i, m in enumerate(kirby.data.materials)
               if m is not None and m.name == body_material}
     members = {v for poly in kirby.data.polygons if poly.material_index in wanted
@@ -311,48 +418,89 @@ def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
             skip = {v.index for v in kirby.data.vertices
                     if any(g.group == filler.index and g.weight > 0.0 for g in v.groups)}
         members = {v.index for v in kirby.data.vertices if v.index not in skip}
-    points = [(to_bone @ (kirby.matrix_world @ kirby.data.vertices[i].co)) * GAME_SCALE
-              for i in members]
-    if not points:
+    if not members:
         return {}
-    centre = Vector((sum(p.x for p in points) / len(points),
-                     sum(p.y for p in points) / len(points),
-                     sum(p.z for p in points) / len(points)))
-
-    # Which way is his back, in this bone's frame. World +Y is behind him, measured in
-    # rig_to_link from the direction the cap's tail hangs.
-    back = (to_bone.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
-    depth = max((p - centre).dot(back) for p in points)
-    target = centre + back * depth
+    sheath_m, torso_m = idle_pose(game_archive, age)
+    to_sheath = invert_rigid(sheath_m)
+    body = []
+    for i in members:
+        local = torso_to_bone @ (kirby.matrix_world @ kirby.data.vertices[i].co)
+        body.append(apply(torso_m, (local.x * GAME_SCALE, local.y * GAME_SCALE,
+                                    local.z * GAME_SCALE)))
+    centre_x = sum(p[0] for p in body) / len(body)
+    centre_y = sum(p[1] for p in body) / len(body)
+    back_z = min(p[2] for p in body)                   # his back is -z in model space
+    clearance = 0.08 * GAME_SCALE
+    print(f"  ball in the idle: centre ({centre_x / GAME_SCALE:.2f}, {centre_y / GAME_SCALE:.2f}), "
+          f"back at z {back_z / GAME_SCALE:.2f}")
 
     pattern = re.compile(r"VTX\(\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),"
                          r"\s*(-?0x[0-9A-Fa-f]+|-?\d+),\s*(-?0x[0-9A-Fa-f]+|-?\d+),"
                          r"\s*(0x[0-9A-Fa-f]+|\d+),\s*(0x[0-9A-Fa-f]+|\d+),"
                          r"\s*(0x[0-9A-Fa-f]+|\d+),\s*(0x[0-9A-Fa-f]+|\d+)\s*\)")
 
-    out: dict[str, str] = {}
-    for path in sorted(glob.glob(os.path.join(object_dir, "*Sheath*Vtx*.inc.c"))):
-        rows = pattern.findall(open(path, encoding="utf8", errors="replace").read())
-        if not rows:
-            continue
-        positions = [Vector((int(r[0]), int(r[1]), int(r[2]))) for r in rows]
-        lo = Vector((min(p.x for p in positions), min(p.y for p in positions),
-                     min(p.z for p in positions)))
-        hi = Vector((max(p.x for p in positions), max(p.y for p in positions),
-                     max(p.z for p in positions)))
-        middle = (lo + hi) * 0.5
+    # Some of these come in pairs. A display list that needs more than the vertex buffer
+    # holds splits its vertices across `...Vtx1` and `...Vtx2`, and the two halves are one
+    # object: the shield's face and its rim, say. Centring each file on its own bounding
+    # box moves the halves by different amounts and pulls the object apart, so the pair is
+    # measured together and moved together.
+    def family(path: str) -> str:
+        return re.sub(r"\d+$", "", os.path.basename(path)[:-len(".inc.c")])
 
-        lines = ['<Vertex Version="0">']
-        for position, row in zip(positions, rows):
-            moved = (position - middle) * ratio + target
-            s_, t_ = (int(row[3], 0), int(row[4], 0))
-            lines.append(
-                f'\t<Vtx X="{int(round(moved.x))}" Y="{int(round(moved.y))}" '
-                f'Z="{int(round(moved.z))}" S="{s_}" T="{t_}" '
-                f'R="{int(row[5], 0)}" G="{int(row[6], 0)}" B="{int(row[7], 0)}" '
-                f'A="{int(row[8], 0)}"/>')
-        lines.append("</Vertex>\n")
-        out[os.path.basename(path)[:-len(".inc.c")]] = "\n".join(lines)
+    groups: dict[str, list[str]] = {}
+    for path in sorted(glob.glob(os.path.join(object_dir, "*Sheath*Vtx*.inc.c"))):
+        groups.setdefault(family(path), []).append(path)
+
+    out: dict[str, str] = {}
+    for name, paths in sorted(groups.items()):
+        parsed = [(path, pattern.findall(open(path, encoding="utf8", errors="replace").read()))
+                  for path in paths]
+        parsed = [(path, rows) for path, rows in parsed if rows]
+        if not parsed:
+            continue
+        if len(parsed) > 1:
+            print(f"  {name}: {len(parsed)} lists measured together so they stay one piece")
+
+        # Scale the set about its own middle, in the limb's frame, then see where that
+        # puts it in the idle. The whole set, sword hilt included, is centred on the
+        # ball's middle, and pushed back until its nearest point clears the ball's
+        # back-most point by the clearance; it keeps Link's own orientation.
+        everything = [(int(r[0]), int(r[1]), int(r[2])) for _path, rows in parsed for r in rows]
+        lo = [min(p[i] for p in everything) for i in range(3)]
+        hi = [max(p[i] for p in everything) for i in range(3)]
+        middle = [(lo[i] + hi[i]) * 0.5 for i in range(3)]
+
+        def scaled(p):
+            return tuple(middle[i] + (p[i] - middle[i]) * ratio for i in range(3))
+
+        placed = [apply(sheath_m, scaled(p)) for p in everything]
+        set_x = (min(p[0] for p in placed) + max(p[0] for p in placed)) * 0.5
+        set_y = (min(p[1] for p in placed) + max(p[1] for p in placed)) * 0.5
+        shift = (centre_x - set_x, centre_y - set_y,
+                 (back_z - clearance) - max(p[2] for p in placed))
+        print(f"  {name}: moved ({shift[0] / GAME_SCALE:+.2f}, {shift[1] / GAME_SCALE:+.2f}, "
+              f"{shift[2] / GAME_SCALE:+.2f}) in the idle, clear of the ball's back")
+
+        for path, rows in parsed:
+            lines = ['<Vertex Version="0">']
+            for row in rows:
+                world = apply(sheath_m, scaled((int(row[0]), int(row[1]), int(row[2]))))
+                moved = apply(to_sheath, tuple(world[i] + shift[i] for i in range(3)))
+                s_, t_ = (int(row[3], 0), int(row[4], 0))
+                lines.append(
+                    f'\t<Vtx X="{int(round(moved[0]))}" Y="{int(round(moved[1]))}" '
+                    f'Z="{int(round(moved[2]))}" S="{s_}" T="{t_}" '
+                    f'R="{int(row[5], 0)}" G="{int(row[6], 0)}" B="{int(row[7], 0)}" '
+                    f'A="{int(row[8], 0)}"/>')
+            lines.append("</Vertex>\n")
+            out[os.path.basename(path)[:-len(".inc.c")]] = "\n".join(lines)
+    archive_names = archive_vertex_names(object_dir)
+    for decomp_name, xml in list(out.items()):
+        archive_name = archive_names.get(decomp_name)
+        if archive_name:
+            out[archive_name] = xml
+        else:
+            print(f"  {decomp_name}: no archive name found, the game will not read it")
     return out
 
 
@@ -369,43 +517,31 @@ def sheath_vertices(object_dir: str, armature, kirby, limb_bone: str,
 # This is pose independent, which the alternative is not. The hand's own joint offset
 # runs along the forearm, so changing it moves the hand in whatever direction the arm
 # happens to be pointing, which is a different direction in every animation.
-SHOULDER_DROP = 650
+# Measured off a screenshot of him actually carrying a pot, rather than from the rest
+# pose. The carry animation raises the arms well above where they hang, so the 0.65 the
+# rest pose suggested left the pot a full body height above his cap. Scaling from that
+# picture, his body is about 2.05 units tall and the pot sat roughly 3.6 units above
+# where it should, so the drop has to be several times what the standing measurement
+# implied. Negative joint values are fine here: the arms attach below the upper body
+# control and nothing of Kirby's hangs off them.
+# Bracketed in the game. At 0.65 the pot floated a full body height above his cap; at
+# 3.65 it had come down far enough to overlap his body. The right look is resting just
+# above the cap, so the answer is between them.
+SHOULDER_DROP = 2200
 
-SHOULDER_LIMBS = {
-    "adult": ("gLinkAdultLeftShoulderLimb", "gLinkAdultRightShoulderLimb"),
-    "child": ("gLinkChildLeftshoulderLimb", "gLinkChildRightshoulderLimb"),
-}
-
-
-def lowered_shoulders(archive: str, age: str, drop: int) -> dict[str, bytes]:
-    """Copies of the shoulder limbs with their joints moved down.
-
-    A limb resource is the game's own 64-byte header, the limb type, its two display list
-    paths as length-prefixed strings, and then eight bytes: the joint position as three
-    signed shorts, then the child and sibling limb indices. Only the joint moves here.
-
-    The stored axes are not world axes. Measured against the imported skeleton, a stored
-    (x, y, z) lands at world (z, -y, x) when the parent is unrotated, so the first short
-    is the one that means up.
-    """
-    import struct
-    import zipfile
-
-    out: dict[str, bytes] = {}
-    with zipfile.ZipFile(archive) as handle:
-        inside = {n.split("/")[-1]: n for n in handle.namelist()}
-        for name in SHOULDER_LIMBS[age]:
-            if name not in inside:
-                print(f"  note: {name} is not in the game archive, leaving the arm alone")
-                continue
-            data = bytearray(handle.read(inside[name]))
-            x, y, z = struct.unpack_from("<3h", data, len(data) - 8)
-            struct.pack_into("<3h", data, len(data) - 8, x - drop, y, z)
-            print(f"  {name}: joint x {x} -> {x - drop}, "
-                  f"dropping that arm {drop / GAME_SCALE:.2f} units")
-            out[name] = bytes(data)
-    return out
-
+# And how far to push them out in front of him.
+#
+# Dropping alone is not enough. Link holds a carried thing in front of a narrow chest, so
+# the same spot on a character who is a wide sphere is inside his body, which is where the
+# pot ended up once the height was right. The arms have to come forward as well as down.
+#
+# Sign, from the same measurement as the drop: a stored (x, y, z) lands at world
+# (z, -y, x) with the parent unrotated, and his face is toward negative world Y, so a
+# larger stored y moves the arms toward his face.
+# Zero, and it stays zero. Link carries a pot or a handful of grass *above his head*,
+# not in front of his chest, so there was never anything to clear and pushing the arms
+# out only moved it to his side. The one dial that matters is the drop.
+SHOULDER_FORWARD = 0
 
 # Where Kirby sits on the horse, in the game's own units.
 #
@@ -423,58 +559,21 @@ def lowered_shoulders(archive: str, age: str, drop: int) -> dict[str, bytes]:
 #
 # Axes, measured rather than assumed. The jump animation's root runs z -22 to -447 while
 # rising y 2680 to 2992, so y is up and negative z is forward.
-RIDE_LIFT = 1790          # up, to undo the hang measured on the adult rig
-RIDE_FORWARD = 400        # onto the saddle; subtracted from z, because -z is forward
-
-# Only the adult rides, so this goes in the adult archive alone. The animation data is
-# shared between the two ages, so there is nothing age-specific to decide.
-RIDE_PREFIX = "gPlayerAnim_link_uma"
-
-
-def riding_animations(archive: str, lift: int, forward: int) -> dict[str, bytes]:
-    """Copies of the riding animations with the character moved up and forwards.
-
-    A player animation is two resources. The header carries the frame count and the name
-    of the data blob; the blob is one flat run of signed shorts, 67 per frame, being the
-    root's translation as three, then three rotations for each of the 21 limbs, then one
-    short packing the eye and mouth flipbook indices. Only the first three of each frame
-    are touched, so every pose is exactly as the game authored it and the whole rider
-    simply sits somewhere else.
-
-    The nineteen riding animations were checked to own their data blobs outright: no
-    other animation in the game shares one, so nothing else can move.
-    """
-    import struct
-    import zipfile
-
-    out: dict[str, bytes] = {}
-    with zipfile.ZipFile(archive) as handle:
-        names = handle.namelist()
-        for header in [n for n in names if RIDE_PREFIX in n and "/link_animetion/" not in n]:
-            raw = handle.read(header)
-            if struct.unpack_from("<I", raw, 64)[0] != 1:
-                continue                      # not a player animation
-            frames = struct.unpack_from("<h", raw, 68)[0]
-            length = struct.unpack_from("<I", raw, 70)[0]
-            segment = raw[74:74 + length].decode("utf8", "replace").replace("__OTR__", "")
-
-            found = [n for n in names if n.endswith(segment)]
-            if not found:
-                continue
-            data = bytearray(handle.read(found[0]))
-            count = struct.unpack_from("<I", data, 64)[0]
-            if count != frames * 67:
-                print(f"  note: {segment.split('/')[-1]} is {count} shorts, not "
-                      f"{frames} x 67; left alone")
-                continue
-            for frame in range(frames):
-                at = 68 + frame * 67 * 2
-                x, y, z = struct.unpack_from("<3h", data, at)
-                struct.pack_into("<3h", data, at,
-                                 x, clamp(y + lift, -32768, 32767),
-                                 clamp(z - forward, -32768, 32767))
-            out[segment] = bytes(data)
-    return out
+# Doubled after looking at it in the game. The measured hang got him most of the way
+# there and no further, which says the seated pose does not hold his body the same
+# distance below the spine that standing does, so the measurement was a good starting
+# point rather than the answer.
+RIDE_LIFT = 1600          # up; 1790 sat him a little proud of the horse's back
+RIDE_FORWARD = -1250      # toward the horse's head.
+                          #
+                          # The sign is the opposite of what the jump animation implied.
+                          # Link's run-jump drives its root strongly negative in z while
+                          # leaping ahead, which says negative is forward, and that is
+                          # how this was built. On the horse it is the other way: raising
+                          # this value walked him backwards off the rump, proved at 8.0
+                          # where he ends up behind the horse entirely. The riding
+                          # animations are authored in a frame of their own, so the
+                          # standing convention does not carry over to them.
 
 
 class LimbBuilder:
@@ -485,6 +584,9 @@ class LimbBuilder:
         self.to_bone = bone_matrix.inverted()
         self.texture_sizes = texture_sizes
         self.by_material: dict[int, list[tuple]] = {}
+        # Game units added along the limb's own x after the bone transform. The hand
+        # limbs hang their mitten this far out along the arm; see carry_fk.hand_offset.
+        self.shift_x = 0.0
 
     def add(self, material_index: int, corners: list[tuple]) -> None:
         self.by_material.setdefault(material_index, []).append(tuple(corners))
@@ -495,7 +597,7 @@ class LimbBuilder:
         s = clamp(int(round(uv[0] * width * 32.0)), -32768, 32767)
         t = clamp(int(round((1.0 - uv[1]) * height * 32.0)), -32768, 32767)
         return (
-            clamp(int(round(local.x * GAME_SCALE)), -32768, 32767),
+            clamp(int(round(local.x * GAME_SCALE + self.shift_x)), -32768, 32767),
             clamp(int(round(local.y * GAME_SCALE)), -32768, 32767),
             clamp(int(round(local.z * GAME_SCALE)), -32768, 32767),
             s, t,
@@ -583,6 +685,31 @@ def main() -> None:
     parser.add_argument("--out", required=True)
     parser.add_argument("--age", choices=["adult", "child"], default="adult",
                         help="which player object this build replaces")
+    parser.add_argument("--no-face", action="store_true",
+                        help="leave the face on the body texture, for bisecting a crash")
+    parser.add_argument("--hide-hands", action="store_true",
+                        help="draw nothing for the closed-hand lists the game swaps in while "
+                             "running and guarding; by default they draw Link's fist in "
+                             "Kirby's skin, like every hand that holds something")
+    parser.add_argument("--no-sheath", action="store_true",
+                        help="leave the sheathed sword and shield where the game put "
+                             "them, for bisecting a crash")
+    parser.add_argument("--fist-hands", action="store_true",
+                        help="keep Link's own fist on held items instead of a fist-sized "
+                             "pink ball")
+    parser.add_argument("--stub-empty", action="store_true",
+                        help="draw a degenerate triangle for limbs with no geometry "
+                             "instead of shipping an empty display list")
+    parser.add_argument("--no-ride", action="store_true",
+                        help="leave the riding animations alone, for bisecting a crash")
+    parser.add_argument("--no-shoulders", action="store_true",
+                        help="leave the carry animations alone, so a carried pot sits "
+                             "where the game puts it")
+    parser.add_argument("--no-mittens", action="store_true",
+                        help="keep Link's own fist on the sword and the other held items")
+    parser.add_argument("--no-swing", action="store_true",
+                        help="leave the sword animations alone, so the swing is at "
+                             "Link's reach")
     parser.add_argument("--game-archive", default=".toolchain/soh/app/oot.o2r",
                         help="the port's own archive, read for the limbs being adjusted")
     parser.add_argument("--eyes", default="build/eyes",
@@ -622,7 +749,10 @@ def main() -> None:
                 if candidate is not None:
                     image = candidate
                     break
-        if material is not None and material.name == FACE_MATERIAL:
+        if material is not None and material.name == FACE_MATERIAL and not args.no_face:
+            # Bisection: fall through and treat it as an ordinary textured material.
+            pass
+        if material is not None and material.name == FACE_MATERIAL and not args.no_face:
             # No texture resource of its own: the pixels come from whichever eye texture
             # the game has bound to segment 8 this frame.
             material_names[index] = "mat_kirby_face"
@@ -718,6 +848,17 @@ def main() -> None:
         obj_path, alt_path = OBJECT, ALT
         near_of, far_of = dict(NEAR_DL), dict(FAR_DL)
         print("adult build")
+    # Any real material will do for a triangle that covers no pixels; take the body's.
+    stub_material = next((n for i, n in sorted(material_names.items())
+                          if n != "mat_kirby_face"), None)
+
+    # The mittens hang out along the arm, where the animations aim them; see carry_fk.
+    hand_shift = hand_offset(os.path.abspath(args.game_archive), args.age)
+    for limb in ("LeftHand", "RightHand"):
+        if limb in builders:
+            builders[limb].shift_x = -hand_shift      # before the joint, like every hand list
+    print(f"mittens hung {hand_shift / GAME_SCALE:.2f} before the joint along the hand's x")
+
     total_tris = 0
     print("\nper limb:")
     for limb in DEFORM:
@@ -728,9 +869,13 @@ def main() -> None:
         count = sum(len(v) for v in builders[limb].by_material.values())
         total_tris += count
         if count == 0:
-            # Nothing to draw here, so draw nothing. An empty list still hides
-            # the vanilla limb, which is what Kirby wants for shins and shoulders.
-            dl_xml = EMPTY_DL
+            # Nothing to draw here. Either shape hides the vanilla limb; see EMPTY_DL
+            # for why the stub is the safer one.
+            if args.stub_empty and stub_material:
+                dl_xml, vtx_name, vtx_xml = stub_display_list(limb, obj_path, stub_material)
+                vertex_files = {vtx_name: vtx_xml}
+            else:
+                dl_xml = EMPTY_DL
         near, far = near_of.get(limb), far_of.get(limb)
         dl_xml = dl_xml.replace(OBJECT + "/", obj_path + "/")
         if near:
@@ -747,39 +892,72 @@ def main() -> None:
     link_z = [(armature.matrix_world @ b.head_local).z for b in armature.data.bones]
     kirby_z = [(kirby.matrix_world @ v.co).z for v in mesh.vertices]
     ratio = (max(kirby_z) - min(kirby_z)) / max(max(link_z) - min(link_z), 1e-6)
-    sheath = sheath_vertices(object_dir, armature, kirby,
-                             bone_name_for(armature, "Sheath"), ratio,
-                             body_material=face_source)
+    sheath = {} if args.no_sheath else sheath_vertices(
+        object_dir, kirby, builders["Torso"].to_bone, ratio,
+        os.path.abspath(args.game_archive), args.age, body_material=face_source)
     files.update(sheath)
     print(f"{len(sheath)} sheath vertex list(s) scaled to {ratio:.2f} and moved onto his "
           f"back, so the game's own sword and shield ride where they should")
 
-    # Lower both shoulders so a carried pot or bush is held at Kirby's middle rather
-    # than over his head.
-    if SHOULDER_DROP:
-        print("\nlowering the arms:")
-        files.update(lowered_shoulders(os.path.abspath(args.game_archive), args.age,
-                                       SHOULDER_DROP))
+    # A mitten in place of Link's fist on every hand list that holds something: the
+    # hand's vertices balled, and the hand textures replaced by Kirby's skin.
+    hand_verts = [v for v, owner in limb_of_vertex.items() if owner == "LeftHand"]
+    mitten_radius = max((builders["LeftHand"].to_bone @ (world @ mesh.vertices[v].co)).length
+                        for v in hand_verts) * GAME_SCALE if hand_verts else 450.0
+    hidden = HIDE_HANDS[args.age] if args.hide_hands else ()
+    if not args.no_mittens:
+        print("\nmittens on the hands that hold things:")
+        print(f"  mitten radius {mitten_radius / GAME_SCALE:.2f}, from the rig")
+        mittens = mitten_vertex_lists(object_dir, args.age, hidden,
+                                      radius=mitten_radius, hang=hand_shift,
+                                      ball=not args.fist_hands,
+                                      shield_dir=shield_hang(os.path.abspath(args.game_archive), args.age))
+        # Under the archive's own names as well, or the game never reads them; see
+        # archive_vertex_names. Every hand list then hangs its ball the way the empty
+        # hand does, so no fist is ever drawn at a joint that sits a hang short.
+        archive_names = archive_vertex_names(object_dir)
+        for decomp_name, xml in list(mittens.items()):
+            if decomp_name in archive_names:
+                mittens[archive_names[decomp_name]] = xml
+            else:
+                print(f"  {decomp_name}: no archive name found, the game will not read it")
+        files.update(mittens)
+        # The hand textures are palette-indexed, so the skin goes in as a palette fill
+        # and the hand-only palettes turn pink; see mitten_hands.hand_textures.
+        files.update(hand_textures(object_dir, args.age, os.path.abspath(args.game_archive)))
 
-    # Seat him properly on the horse. Only the adult rides.
-    #
-    # Kept apart from `files` because these names are already full paths from the root of
+    # Animations. Kept apart from `files` because these names are already full paths from the root of
     # the archive. Everything in `files` is a bare resource name that gets the player
     # object's folder prefixed to it, which would bury an animation somewhere the game
     # never looks for one.
     rooted: dict[str, bytes] = {}
-    if args.age == "adult" and (RIDE_LIFT or RIDE_FORWARD):
-        rides = riding_animations(os.path.abspath(args.game_archive),
-                                  RIDE_LIFT, RIDE_FORWARD)
-        rooted.update(rides)
-        print(f"\n{len(rides)} riding animation(s) shifted up {RIDE_LIFT / GAME_SCALE:.2f} "
-              f"and forward {RIDE_FORWARD / GAME_SCALE:.2f}, so he sits on the saddle")
 
-    hidden = HIDE_HANDS[args.age]
+    # Every animation gets the arms posed: the stubby reach around the mittens, the
+    # carry set holding the pot at his middle, the ride set shifted onto the saddle.
+    # See carry_fk.py for why this is done in animation data and never in a limb.
+    print("\nposing the arms in every animation:")
+    rooted.update(all_animations(
+        os.path.abspath(args.game_archive), args.age,
+        drop=SHOULDER_DROP, forward=SHOULDER_FORWARD, reach=SWING_REACH, fist=mitten_radius,
+        ride_lift=RIDE_LIFT, ride_forward=RIDE_FORWARD,
+        carry=not args.no_shoulders, swing=not args.no_swing,
+        ride=(args.age == "adult" and not args.no_ride),
+        cache_dir=os.path.abspath("build")))
+
+    # The game swaps a hand limb's list for a closed or raised variant as he runs,
+    # climbs and, through the pause screen's model, whenever a sword is equipped. Those
+    # lists must not draw the open mitten: with the sword out, the holding list already
+    # draws a fist on the grip, and an open mitten on top of it is a pink disc the size
+    # of the hand over the hilt. So each variant draws nothing at all, the stub, and
+    # the running hand briefly shows no mitten rather than a wrong one.
     for name in hidden:
-        files[name] = EMPTY_DL
-    print(f"\nemptied {len(hidden)} bare-hand list(s), so no vanilla hand draws at the "
-          f"hand bones; the lists that hold an item keep their vanilla geometry")
+        if args.stub_empty and stub_material:
+            dl_xml, vtx_name, vtx_xml = stub_display_list(name, obj_path, stub_material)
+            files[name] = dl_xml
+            files[vtx_name] = vtx_xml
+        else:
+            files[name] = EMPTY_DL
+    print(f"{chr(10)}{len(hidden)} closed-hand list(s) draw nothing, so no mitten sits over a held grip")
 
     for texture in textures.values():
         files[texture.name] = texture.resource()
@@ -812,8 +990,20 @@ def main() -> None:
         for name, payload in sorted(files.items()):
             data = payload.encode("utf8") if isinstance(payload, str) else payload
             archive.writestr(f"{alt_path}/{name}", data)
+        # An animation's data is never overridden in place. Ship of Harkinian 9.3.0 draws
+        # a player whose animation data comes from an alt archive wrong for a frame or two
+        # at every animation change, whatever the bytes (verified with blobs identical to
+        # the game's own). Data under a name of its own, with only the small header
+        # overridden to point at it, draws cleanly. See carry_fk.py.
+        headers = animation_headers(os.path.abspath(args.game_archive))
         for name, payload in sorted(rooted.items()):
-            archive.writestr(f"alt/{name}", payload)
+            if not name.startswith("misc/link_animetion/"):
+                archive.writestr(f"alt/{name}", payload)
+                continue
+            base = name.split("/")[-1]
+            archive.writestr(f"misc/link_animetion/kirby/{base}", payload)
+            for header_path, header in headers.get(name, ()):
+                archive.writestr(f"alt/{header_path}", header)
 
     size = os.path.getsize(out)
     print(f"\n{total_tris} triangles placed, {skipped} with no limb were dropped")

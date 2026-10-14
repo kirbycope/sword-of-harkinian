@@ -49,12 +49,11 @@ BONE_NAME: dict[str, str] = {}
 # Which limbs each role is allowed to claim by proximity to the real bone.
 CANDIDATES: dict[str, tuple[str, ...]] = {
     "feet": ("LeftFoot", "RightFoot", "LeftShin", "RightShin"),
+    "arms": ("LeftHand", "RightHand"),
     "sword": ("RightHand",),
 }
-# The cap and the mittens are not in that table because neither can be decided
-# independently. Both have to ride whichever bone the ball ends up on, which is worked
-# out at rig time. The reasoning for each is at its own site: see APPENDAGES below for
-# why the arms gave up on Link's arm chain.
+# The cap is not in that table because it cannot be decided independently: it has to
+# ride whichever bone the ball ends up on, which is worked out at rig time.
 
 # The body ball goes to exactly one bone, and it is worth being plain about why.
 #
@@ -133,37 +132,99 @@ def nearest_limb(p: Vector, segments: dict[str, tuple[Vector, Vector]],
 
 # Which bone each appendage sits on, and how it splits left from right.
 #
-# Only the feet are here, and the arms are not, which took three attempts to arrive at.
-# Link's hand bones hang at humanoid height, about sixty percent of the way up him, and
-# Kirby's crown is lower than that. Seat the mittens exactly on those bones and they land
-# on his upper flank, where they read as ears. Drop them to his waist instead and the
-# silhouette is right while standing, but the offset from the bone is then an arc that
-# every arm rotation swings them through, so they flap as soon as he moves.
-#
-# There is no third position that fixes both, because no bone in Link's arm chain sits
-# near Kirby's middle: measured on the child skeleton, the hand bone is 0.71 above the
-# ball's centre, which is 0.62 of the ball's own radius. So the arms give up on following
-# the arm chain and ride the body instead, in weight(), exactly as the cap does. Kirby's
-# own model already puts them where they belong on him, so they are left alone here.
-#
-# The cost is that he does not swing his arms. That is a fair likeness of Kirby, who
-# holds his mittens out from his sides in almost every pose he has, and the body bone
-# still twists during a sword swing, so they are not frozen.
+# The mittens sit exactly on Link's hand joints, with no offset, and that only works
+# because the mod rewrites every animation so the hand joints stay beside Kirby's body
+# at a stubby reach (see tools/carry_fk.py). Seated on the raw skeleton they would land
+# on his upper flank, where they read as ears, and any offset from the joint is an arc
+# that every arm rotation swings them through. With the animations posed, the joint
+# itself is where the mitten belongs, so the mitten goes there and nowhere else, and it
+# follows the hand into a sword swing or onto a carried pot.
 APPENDAGES = (
     ("feet", "LeftFoot", "RightFoot", 0.0),
+    ("arms", "LeftHand", "RightHand", 0.0),
 )
 
 
-# Where the mittens sit on the ball, as a fraction of the ball's own height from its
-# bottom. Kirby's arms are below his eyes, around the middle of him; the Kirby 64 model
-# puts them higher than that because its own eyes sit higher than ours end up, and left
-# alone they come out level with the face and read as ears all over again.
+# A hole worth closing is a short loop of boundary edges. Anything longer is a shape
+# that is meant to be open, like the underside of the cap.
 #
-# This is a free dial now. While the mittens rode Link's hand bones, moving them was
-# paid for in swing, because the offset from the bone is the radius of the arc every arm
-# rotation drags them through. They ride the body, so the height is a modelling choice
-# and costs nothing.
-ARM_HEIGHT = 0.40
+# The Kirby 64 body has two of these, one either side at mid height, which are the sockets
+# the mittens plug into. They were invisible while the mittens sat in them, and moving the
+# mittens down his flank uncovered them, so he walks around with a hole in each side.
+# Raised to cover the cap's own rim as well. A hat is normally open underneath and the
+# head fills it, but this cap is oversized for the ball it sits on, so the rim is left
+# exposed and you can see up inside it from behind. Closing it costs two triangles and
+# nothing is ever seen through it again.
+HOLE_EDGES = 16
+
+
+def close_small_holes(kirby: bpy.types.Object) -> str:
+    """Fill short open loops, so the body is airtight wherever something was moved off it."""
+    import bmesh
+
+    mesh = kirby.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    uv_layer = bm.loops.layers.uv.active
+
+    boundary = [e for e in bm.edges if len(e.link_faces) == 1]
+    if not boundary:
+        bm.free()
+        return "no open edges; the body was already airtight"
+
+    adjacency: dict[int, list] = {}
+    for edge in boundary:
+        for vert in edge.verts:
+            adjacency.setdefault(vert.index, []).append(edge)
+
+    known_uv: dict[int, tuple[float, float]] = {}
+    if uv_layer is not None:
+        for face in bm.faces:
+            for loop in face.loops:
+                known_uv.setdefault(loop.vert.index, tuple(loop[uv_layer].uv))
+
+    visited, filled, skipped = set(), 0, 0
+    for edge in boundary:
+        if edge.index in visited:
+            continue
+        loop_edges, stack = [], [edge]
+        visited.add(edge.index)
+        while stack:
+            current = stack.pop()
+            loop_edges.append(current)
+            for vert in current.verts:
+                for other in adjacency.get(vert.index, []):
+                    if other.index not in visited:
+                        visited.add(other.index)
+                        stack.append(other)
+        if len(loop_edges) > HOLE_EDGES:
+            skipped += 1
+            continue
+        try:
+            made = bmesh.ops.holes_fill(bm, edges=loop_edges,
+                                        sides=len(loop_edges)).get("faces") or []
+        except (TypeError, RuntimeError):
+            continue
+        source = loop_edges[0].link_faces[0]
+        for face in made:
+            face.material_index = source.material_index
+            face.smooth = source.smooth
+            if uv_layer is not None:
+                for loop in face.loops:
+                    uv = known_uv.get(loop.vert.index)
+                    if uv is not None:
+                        loop[uv_layer].uv = uv
+        filled += len(made)
+
+    if filled:
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return (f"closed {filled} face(s) over short open loops, "
+            f"left {skipped} long loop(s) open as intended")
 
 
 # Kirby's face, as a box in the body texture's own coordinates, and the name the split
@@ -264,28 +325,6 @@ def split_face(kirby: bpy.types.Object) -> str:
             f"(back is {'+Y' if behind > 0 else '-Y'})")
 
 
-def place_arms(kirby: bpy.types.Object) -> str:
-    """Slide the mittens down the ball to ARM_HEIGHT, keeping them out at its flank."""
-    roles = roles_of(kirby)
-    arms = roles.get("arms") or set()
-    ball = roles.get("ball") or set()
-    if not arms or not ball:
-        return "no arms or no ball to place them against"
-
-    ball_z = [(kirby.matrix_world @ kirby.data.vertices[i].co).z for i in ball]
-    lo, hi = min(ball_z), max(ball_z)
-    target = lo + (hi - lo) * ARM_HEIGHT
-
-    arm_z = [(kirby.matrix_world @ kirby.data.vertices[i].co).z for i in arms]
-    centre = sum(arm_z) / len(arm_z)
-    shift = target - centre
-    for i in arms:
-        kirby.data.vertices[i].co.z += shift
-    kirby.data.update()
-    return (f"mittens moved {shift:+.2f} to z {target:.2f}, "
-            f"{ARM_HEIGHT:.0%} up a ball that spans {lo:.2f} to {hi:.2f}")
-
-
 def seat_appendages(kirby: bpy.types.Object,
                     segments: dict[str, tuple[Vector, Vector]]) -> list[str]:
     """Move the mittens and feet onto the bones that drive them.
@@ -324,7 +363,9 @@ def seat_appendages(kirby: bpy.types.Object,
                 centroid += points[i]
             centroid /= len(group)
 
-            target = (seg[0] + seg[1]) * 0.5
+            # A hand bone is a leaf, so its tail is wherever the importer put it; the
+            # joint is the head, and that is where the game puts the hand's origin.
+            target = seg[0].copy() if role == "arms" else (seg[0] + seg[1]) * 0.5
             target.z -= body_height * drop
             shift = target - centroid
             for i in group:
@@ -407,20 +448,14 @@ def weight(kirby: bpy.types.Object, segments: dict[str, tuple[Vector, Vector]]) 
         for i in ball:
             owner[i] = best
 
-        # The cap and the mittens join the ball, for the same reason by two routes.
+        # The cap joins the ball. Link's hat bone is a child of his head, so a cap left
+        # there would swing away from a ball that no longer follows the head. It is a
+        # shame, because the hat limb was the neatest part of the idea, but a cap welded
+        # to the skull beats one that detaches every time the game aims his head.
         #
-        # Link's hat bone is a child of his head, so a cap left there would swing away
-        # from a ball that no longer follows the head. It is a shame, because the hat
-        # limb was the neatest part of the idea, but a cap welded to the skull beats one
-        # that detaches every time the game aims his head.
-        #
-        # The mittens are here because Link's arm chain has no bone near Kirby's middle,
-        # so anything weighted to it either sits too high or swings through the offset.
-        # Riding the body makes them rigid nubs, which is what Kirby's arms look like.
-        # The hand limbs are then left with no geometry and the mod writes them an empty
-        # display list, which hides Link's own hands. His held sword is unaffected: that
-        # comes from the separate fist-and-sword lists, which this mod does not replace.
-        for role in ("cap", "arms"):
+        # The mittens do not: they ride the hand joints, see APPENDAGES, so they hold
+        # the sword and the pot, and the mod poses every animation to keep them home.
+        for role in ("cap",):
             members = roles.get(role) or set()
             for i in members:
                 owner[i] = best
@@ -540,7 +575,7 @@ def main() -> None:
 
     for note in seat_appendages(kirby, segments):
         print(f"  seated {note}")
-    print(f"  {place_arms(kirby)}")
+    print(f"  {close_small_holes(kirby)}")
     print(f"  {split_face(kirby)}")
 
     counts = weight(kirby, segments)
@@ -574,7 +609,6 @@ def main() -> None:
         lod_segments = bone_segments(lod_armature)
         lod_scale = fit_to_skeleton(lod, lod_segments)
         seat_appendages(lod, lod_segments)
-        print(f"  {place_arms(lod)}")
         lod_counts = weight(lod, lod_segments)
         lod_filled = fill_empty(lod, lod_counts, lod_segments)
 
