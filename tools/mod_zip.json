@@ -4,7 +4,8 @@
   "out": "release",
   "files": [
     "dist/kirby_child.o2r",
-    "dist/kirby_adult.o2r"
+    "dist/kirby_adult.o2r",
+    "dist/kirby_voice.o2r"
   ],
   "optional": [],
   "readme": "release/install.txt"
