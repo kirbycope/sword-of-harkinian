@@ -3,14 +3,21 @@
 Game: The Legend of Zelda: Ocarina of Time (Ship of Harkinian section)
 Category: Skins, Link
 Title: Sword Kirby
-Version: 1.0.0
-File: SwordKirby-1.0.0.zip
+Version: 1.1.0
+File: SwordKirby-1.1.0.zip
 Screenshots: screenshot_idle_front.png (thumbnail), screenshot_guard_front.png,
 screenshot_sword_behind.png, screenshot_sheathed_behind.png, screenshot_equipment.png
 
 ## Post body (paste as is)
 
 Sword Kirby replaces Link, child and adult, in Ship of Harkinian 9.3.0.
+
+NEW IN 1.1.0
+He is rebuilt with the port's own tooling: the model comes out of Harbour Masters' Fast64
+fork rather than resources written by hand, so the archive ships a real skeleton. A crash
+is fixed, where every paletted texture asked the port to load 256 palette entries out of
+palettes holding four to eight. His hands are his own again in every pose instead of
+Link's hands in Kirby's colour, and he sits in the saddle at a gallop as well as standing.
 
 Kirby's sword ability is already Link in everything but shape: he wears the green cap and
 swings a blade. This mod puts the ball underneath. His body, cap and shoes ride Link's
@@ -20,7 +27,8 @@ all 573 of Link's animations are re-posed so his mittens stay on his body instea
 swinging around on Link's arms. The pause screen's Equipment page is posed to match. Both
 ages, every sword and shield.
 
-Works on Windows (DirectX 11) and macOS (Metal).
+Built and played on Windows (DirectX 11). 1.0.0 also ran on macOS (Metal); this build
+has not been checked there yet.
 
 INSTALL
 Copy kirby_child.o2r and kirby_adult.o2r into Ship of Harkinian's mods folder (the one
@@ -37,10 +45,11 @@ the sheathed shield from some angles.
 
 SOURCE
 The build scripts, and how a custom player model gets into this port at all, are at
-github.com/kirbycope/sword-of-harkinian, with the files on the 1.0.0 release. It writes
-the o2r by hand rather than using the Ship of Harkinian team's own tooling, which is
-their Fast64 fork (github.com/HarbourMasters/Fast64) and proxy's o2r animation editor
-(o2r.garrettcox.dev). If you are making your own mod, start there.
+github.com/kirbycope/sword-of-harkinian, with the files on the 1.1.0 release. The model
+is built with the Ship of Harkinian team's own tooling: their Fast64 fork
+(github.com/HarbourMasters/Fast64), alongside proxy's o2r animation editor
+(o2r.garrettcox.dev). If you are making your own mod, start there; the repository records
+the four settings that fork gets wrong unless you set them.
 
 Kirby and The Legend of Zelda are the property of Nintendo and HAL Laboratory.
 
