@@ -15,15 +15,26 @@ from its `mods` folder, with the sheathed sword and shield on the back of the ba
 sword held blade up beside him, the shield at his side when raised, mittens on every empty
 hand, and the pause screen's Equipment page posed to match.
 
+**1.1.0 is the same character rebuilt through the port's own tooling.** Version 1.0.0
+wrote every resource by hand, which is not how a mod for this port is meant to be made.
+The model now comes out of Harbour Masters' Fast64 fork, so the archive ships a real
+skeleton rather than overrides of the game's display lists. That rebuild also fixed a
+crash: every paletted texture was asking the port to load 256 palette entries out of
+palettes holding four to eight, which killed the game in Link's House. His hands are his
+own again in every pose instead of Link's hands in his colour, and he sits in the saddle
+rather than on the horse's neck or its rump.
+
 | Piece | State |
 | --- | --- |
 | Link's limb table, derived from extracted game data | Done, and verified against the real import |
-| Asset extraction from the ROM | Done, `decomp/extracted/ntsc-1.2` |
+| Asset extraction from the ROM, for the equipment overrides only | Done, `decomp/extracted/ntsc-1.2` |
 | Fast64 skeleton import of both ages | Done, 21 bones, table agrees |
 | Sword Kirby, assembled and rigged to the real skeleton | Done, 490 vertices, 706 triangles |
-| Packing into an `.o2r` the port reads from `mods` | Done, `tools/make_mod.py` |
+| Model exported with Harbour Masters' Fast64 fork, both ages | Done, `blender/hm_export_model.py` |
+| Packing into an `.o2r` the port reads from `mods` | Done, `tools/pack_mod.py` |
 | Every player animation re-posed for his arms, legs and sheath | Done, `tools/carry_fk.py` |
-| Running it in Ship of Harkinian 9.3.0 on Windows (DirectX 11) and macOS (Metal) | Done |
+| Running it in Ship of Harkinian 9.3.0 on Windows (DirectX 11) | Done |
+| The same, on macOS (Metal) | 1.0.0 yes; the rebuild is not tested there yet |
 
 ![Standing](docs/preview/final_idle_front.png)
 ![Guarding](docs/preview/final_guard_front.png)
@@ -31,7 +42,7 @@ hand, and the pause screen's Equipment page posed to match.
 
 ## Installing the mod
 
-1. Download `SwordKirby-1.0.0.zip` from the releases page, or build it yourself (below).
+1. Download `SwordKirby-1.1.0.zip` from the releases page, or build it yourself (below).
 2. Unzip it and copy `kirby_child.o2r` and `kirby_adult.o2r` into Ship of Harkinian's
    `mods` folder, the one beside `oot.o2r` that holds `custom_mod_files_go_here.txt`.
 3. Start the game. Nothing to enable; the archives replace Link's model, hands, sheath
@@ -57,26 +68,29 @@ git-ignored, like `dist/`.
 Ship of Harkinian loads custom assets from `.o2r` archives in its `mods` folder. An
 archive is a zip; a file at `alt/` plus a resource path replaces the game's own resource at that path,
 and the port reads XML display lists, vertex lists, textures and materials, so the whole
-mod is generated text plus the animation data. `tools/make_mod.py` writes it straight
-from the rigged Blender file; no ROM build and no retro.
+mod is generated text plus the animation data.
 
-**This is not the supported way to make a Ship of Harkinian mod, and the port's
-developers have said so.** They maintain their own [Fast64
-fork](https://github.com/HarbourMasters/Fast64) and an [o2r animation
-editor](https://o2r.garrettcox.dev/) that turns Fast64 exports into the format the port
-wants, with their own documentation beside them. Everything here writes the archive by
-hand instead, which is why it ran into two faults nobody else reports (below) and why
-the two issues it raised upstream were closed as not planned. If you are making a mod,
-start with their tooling; read this for how the format works, not as a recommendation.
+**The model is built with Harbour Masters' own tooling.** They maintain a [Fast64
+fork](https://github.com/HarbourMasters/Fast64) whose `hm64` feature set imports Link straight
+out of the game's `oot.o2r` and exports the skeleton, its limbs, its display lists and its
+textures as the resources the port reads. `blender/hm_export_model.py` drives it and
+`tools/pack_mod.py` packs what it writes. There is no ROM build, no decompilation checkout for
+this half, and no hand-written XML.
 
-Two things about the port decide the shape of this mod, both found the hard way, and
-both unconfirmed by the maintainers. On this machine the Metal backend crashes on any
-skeleton limb served from a mod, so nothing here moves a joint; every change of pose is
-done in the animation data instead (`tools/carry_fk.py`), which ships under names of its
-own with only the animation headers overridden. And the port resolves vertex arrays by
-the name its own extraction gives them, the object plus a ROM offset, not by the
-decompilation's names, so vertex lists ship under both (`tools/check_archive.py` lists
-anything the game would not read). The rest of this file is the long form.
+Version 1.0.0 did write every resource by hand, which is not the supported way to make a mod and
+the port's developers said so: the two issues it raised upstream were closed as not planned, and
+both were this workflow rather than the port. The Metal crash came from shipping hand-written
+binary `SkeletonLimb` resources where a mod's limbs are XML. The animation glitch came from
+overriding animation data blobs in place, where their own animation pack ships the data beside
+the header and overrides only the header. The rebuild does both the way their mods do.
+
+Two things still have to be done by hand, because they are the game's own resources rather than
+the model's. The port resolves vertex arrays by the name its own extraction gives them, the
+object plus a ROM offset, not by the decompilation's names, so the overrides ship under both
+(`tools/check_archive.py` lists anything the game would not read). And the sheathed sword, the
+shield and the hand lists the player code swaps in are drawn from the game's own display lists,
+so their vertices are moved and their textures replaced as overrides: `tools/make_mod.py
+--assets-only`.
 
 ## Where Kirby comes from
 
@@ -120,7 +134,7 @@ decompilation calls `ntsc-1.2`.
 | Tool | Version | Note |
 | --- | --- | --- |
 | Blender | 4.5 | Fast64 supports 3.2 up to 5.1.2 and recommends 4.0 or newer. Blender 5.2 is too new. |
-| Fast64 | [HarbourMasters fork](https://github.com/HarbourMasters/Fast64) | Built by the Ship of Harkinian team for this port; use it rather than upstream. This project was built against upstream `main`, which is one of the reasons the port's developers call its workflow unsupported. |
+| Fast64 | [HarbourMasters fork](https://github.com/HarbourMasters/Fast64) | Built by the Ship of Harkinian team for this port; use it rather than upstream. Enable one or the other, never both: they register the same operators. |
 | retro | 0.2.1 | Builds the o2r archive. |
 | Ship of Harkinian | 9.3.0 | Dewey Alpha, released 6 October 2026. |
 | Ocarina of Time decompilation | zeldaret/oot | Fast64's import and export target. Never committed here. |
@@ -130,18 +144,54 @@ into `decomp/`. Both directories are ignored by git.
 
 ## Build
 
-Build the model and check that every limb carries geometry:
+Assemble and rig the model, then import Link's real skeleton with the Harbour Masters fork and
+rig onto it:
 
 ```powershell
-& 'C:\Program Files\Blender Foundation\Blender 4.5\blender.exe' --background `
-  --python blender/sword_kirby.py -- --out build/sword_kirby.blend
+$blender = 'C:\Program Files\Blender Foundation\Blender 4.5lender.exe'
+
+# Link's own skeleton, out of the game's archive, for either age
+& $blender --background --python blender/hm_import_link.py -- --mode "Child Link" --out build/hm_link_child.blend
+
+# Kirby's face material, taken from Link's own eye material so the game drives his eyes
+& $blender --background --python blender/hm_face.py -- `
+    --blend build/hm_kirby_child.blend --age child --donor build/hm_link_child.blend `
+    --out build/hm_kirby_child_face.blend
+
+# Export the skeleton, its limbs, display lists and textures
+& $blender --background --python blender/hm_export_model.py -- `
+    --blend build/hm_kirby_child_face.blend --out build/hm_export_child `
+    --folder "objects/object_link_child"
 ```
 
-Render the preview sheets:
+The export folder has to be passed as `objects/object_link_child` (or `objects/object_link_boy`),
+not the bare object name, or the paths written inside the resources lack the `objects/` prefix
+and the game resolves none of them.
+
+Then the overrides of the game's own equipment, and the pack:
 
 ```powershell
-& 'C:\Program Files\Blender Foundation\Blender 4.5\blender.exe' --background `
-  --python blender/render_preview.py -- --out docs/preview
+# the sheathed sword and shield, the hands and their textures
+& $blender --background --python tools/make_mod.py -- `
+    --blend build/hm_kirby_child.blend --out build/assets_child.o2r --age child --assets-only
+
+# model + animations + overrides into one archive
+python tools/pack_mod.py --export build/hm_export_child --age child `
+    --anims dist/kirby_child.o2r --assets build/assets_child.o2r `
+    --carry sheath,hands,eyes,tlut --out dist/kirby_child.o2r
+```
+
+Look at it in the game, which installs the archive, drives the player through the poses that
+catch a bad build, photographs each one and closes the game again:
+
+```powershell
+powershell -File tools/check_build.ps1 -Archive dist/kirby_child.o2r -Out docs/preview/check
+```
+
+Render the limb-ownership preview sheets:
+
+```powershell
+& $blender --background --python blender/render_preview.py -- --out docs/preview
 ```
 
 The limb-ownership renders recolour every triangle by which of Link's limbs owns it.
@@ -251,26 +301,26 @@ loop and the bush pull so that each hand lands where a shoulder lowered by
 Kirby's is drawn on the arm limbs, so the pose can be anything and only the pot moves.
 `SHOULDER_DROP` in `tools/make_mod.py` is the one number to tune.
 
-It used to be done by lowering the two shoulder joints in the skeleton limb resources,
-which is exact and crashes Ship of Harkinian's Metal backend on every scene transition:
-any skeleton limb served from a mod archive does, even one identical to the game's own.
-The build therefore ships no limb resources at all, and the same archives run on Windows
-and macOS.
+It used to be done by lowering the two shoulder joints in the limb resources, which is exact and
+crashed Ship of Harkinian's Metal backend on every scene transition. That was filed as Shipwright
+issue 7401 and closed as not planned, correctly: those limbs were hand-written binary resources,
+and a mod's limbs are XML, which is what the exporter writes and what their own model mods ship.
+The pose stays in the animation data regardless, because it costs nothing and because it is the
+one place a shoulder can move without the model having to know about it.
 
-## Animations ship under their own names
+## Animations ship beside their headers
 
-Ship of Harkinian 9.3.0 draws the player wrong, tipped, sunk or not at all, for a frame or
-two at every animation change when the animation data comes from a mod archive in place of
-the game's own blob, whatever the bytes: a blob copied unchanged into `alt/` at its own
-path reproduces it. So the build never overrides animation data. Each rewritten blob goes
-under `misc/link_animetion/kirby/` with the blob's own name, a path the base game has no twin of, and only
-the small `LinkAnimationHeader` that names it is overridden, with its segment string
-pointing at the copy. Nine bisect runs found it. Both this and the Metal limb crash were reported upstream
-(Shipwright issues 7401 and 7402) and both were closed as not planned: the maintainers
-could not reproduce either and attribute them to this project's unsupported workflow,
-which writes the archive by hand instead of using their own tooling. The workarounds
-below are what this mod does about them, not accepted port bugs.
+Ship of Harkinian 9.3.0 draws the player wrong, tipped, sunk or not at all, for a frame or two at
+every animation change when the animation data comes from a mod archive in place of the game's
+own blob, whatever the bytes: a blob copied unchanged into `alt/` at its own path reproduces it.
+Nine bisect runs found that.
 
+It is not a port bug. Harbour Masters' own 3DS animation pack ships 998 resources and does not
+override a single blob in place: the data goes beside the header, `objects/gameplay_keep/` plus the header name and `_Data`, and only the header is overridden under `alt/`, with its segment string rewritten to
+point at the copy. That is the layout this mod uses now. It was filed upstream as Shipwright issue
+7402 before that was understood, and closed as not planned, correctly.
+
+## His feet are Link's foot joints too
 ## His feet are Link's foot joints too
 
 The shoes ride Link's foot limbs, which swing on his leg arcs, far wider than Kirby is:
@@ -361,13 +411,19 @@ rigging. Each pose checks one thing that would be wrong in the game:
 | Path | Holds |
 | --- | --- |
 | `blender/link_skeleton.py` | Link's limb table, and a check against a real import |
-| `blender/import_link_skeleton.py` | Imports Adult Link with Fast64 and verifies the table |
+| `blender/hm_import_link.py` | Imports either age's skeleton from the game's `oot.o2r` with the Harbour Masters fork |
 | `blender/build_sword_kirby.py` | Assembles Kirby from the three ripped models |
 | `blender/rig_to_link.py` | Weights him to the real skeleton |
+| `blender/hm_face.py` | Gives his face Link's own eye material, with his frames in the flipbook |
+| `blender/hm_export_model.py` | Exports the skeleton, twice, so the palette colour counts are right |
+| `blender/stray_report.py` | Every triangle by the bone that owns it, which is how the filler boxes were found |
 | `blender/pose_test.py` | Poses the skeleton to prove the weights follow |
 | `blender/render_preview.py` | Preview and limb-ownership renders |
-| `tools/make_mod.py` | Packs the rigged model into the mod archive. Run in Blender. |
+| `tools/pack_mod.py` | Packs the export, the animations and the overrides into the archive |
+| `tools/make_mod.py` | The 1.0.0 generator. Now run only with `--assets-only`, for the equipment overrides. Run in Blender. |
+| `tools/check_build.ps1` | Installs an archive, drives the game through the telling poses, photographs them, closes the game |
 | `tools/check_archive.py` | Lists every entry in a packed archive that the game will not read: no twin in `oot.o2r` and no reference from the mod's own lists. Run after every pack. |
+| `tools/reseat.py` | Re-shifts the riding animations in a packed archive, for tuning the saddle without repacking |
 | `tools/carry_fk.py` | Poses the arms in the carry and sword animations through the game's own limb walk |
 | `tools/mitten_hands.py` | Balls the game's hand into a mitten on every list that holds an item |
 | `docs/preview/` | Rendered previews |

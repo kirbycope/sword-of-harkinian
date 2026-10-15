@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import os
 import struct
 import sys
@@ -567,10 +568,15 @@ SHOULDER_FORWARD = 0
 # rewrites these into a packed archive in a second, so the loop is: reseat, restart, look).
 # Standing and waiting, he sits on the saddle at this offset from Link's own root; the
 # moving animations need much more, because Link leans forward into them and a ball cannot.
-RIDE_LIFT = 1600
-RIDE_FORWARD = -800             # negative is toward the horse's head
-RIDE_MOVING_LIFT = 1300         # extra, on walk, run and jump
-RIDE_MOVING_FORWARD = -4700     # extra, same
+# Where the rider sits is settled in tools/pack_mod.py now, against the vanilla
+# translation, so that a rebuild cannot stack one tuning on top of another and so that a
+# saddle tune costs a repack rather than the whole animation pass. These stay at zero:
+# the numbers that used to live here were measured against the hand-built model and put
+# the exported one on the horse's neck.
+RIDE_LIFT = 0
+RIDE_FORWARD = 0
+RIDE_MOVING_LIFT = 0
+RIDE_MOVING_FORWARD = 0
                           #
                           # The sign is the opposite of what the jump animation implied.
                           # Link's run-jump drives its root strongly negative in z while
@@ -711,6 +717,11 @@ def main() -> None:
     parser.add_argument("--no-shoulders", action="store_true",
                         help="leave the carry animations alone, so a carried pot sits "
                              "where the game puts it")
+    parser.add_argument("--assets-only", action="store_true",
+                        help="write only the overrides of the game's own assets (the sheathed "
+                             "sword and shield, the hands, their textures): the model itself now "
+                             "comes from Harbour Masters' Fast64 exporter, which writes the "
+                             "skeleton, its limbs and its display lists in the port's own format")
     parser.add_argument("--no-mittens", action="store_true",
                         help="keep Link's own fist on the sword and the other held items")
     parser.add_argument("--no-swing", action="store_true",
@@ -942,14 +953,22 @@ def main() -> None:
     # carry set holding the pot at his middle, the ride set shifted onto the saddle.
     # See carry_fk.py for why this is done in animation data and never in a limb.
     print("\nposing the arms in every animation:")
-    rooted.update(all_animations(
-        os.path.abspath(args.game_archive), args.age,
-        drop=SHOULDER_DROP, forward=SHOULDER_FORWARD, reach=SWING_REACH, fist=mitten_radius,
-        ride_lift=RIDE_LIFT, ride_forward=RIDE_FORWARD,
-        ride_moving_lift=RIDE_MOVING_LIFT, ride_moving_forward=RIDE_MOVING_FORWARD,
-        carry=not args.no_shoulders, swing=not args.no_swing,
-        ride=(args.age == "adult" and not args.no_ride),
-        cache_dir=os.path.abspath("build")))
+    if args.assets_only:
+        # The sheath and hand overrides are measured against this rig; everything the
+        # exporter now owns is dropped before the archive is written.
+        keep = re.compile(r"(Sheath.*Vtx|Vtx_[0-9A-F]{6}|(Fist|Holding|HandClosed|HandUp|HandOut)"
+                          r".*Vtx|HandTex|HandTLUT|TLUT_[0-9A-F]{6}|Tex_[0-9A-F]{6})$")
+        files = {name: payload for name, payload in files.items() if keep.search(name)}
+        print(f"assets only: {len(files)} override(s) of the game's own resources")
+    else:
+        rooted.update(all_animations(
+            os.path.abspath(args.game_archive), args.age,
+            drop=SHOULDER_DROP, forward=SHOULDER_FORWARD, reach=SWING_REACH, fist=mitten_radius,
+            ride_lift=RIDE_LIFT, ride_forward=RIDE_FORWARD,
+            ride_moving_lift=RIDE_MOVING_LIFT, ride_moving_forward=RIDE_MOVING_FORWARD,
+            carry=not args.no_shoulders, swing=not args.no_swing,
+            ride=(args.age == "adult" and not args.no_ride),
+            cache_dir=os.path.abspath("build")))
 
     # The game swaps a hand limb's list for a closed or raised variant as he runs,
     # climbs and, through the pause screen's model, whenever a sword is equipped. Those

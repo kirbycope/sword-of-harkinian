@@ -28,6 +28,9 @@ def main() -> None:
     a.add_argument("--game", default=".toolchain/soh/app/oot.o2r")
     a.add_argument("--lift", type=int, required=True)
     a.add_argument("--forward", type=int, required=True, help="added to z; +z is toward the horse's head")
+    a.add_argument("--side", type=int, default=0,
+                   help="added to x on every riding animation; positive is one way across the "
+                        "saddle, and which one is a question for the screen")
     a.add_argument("--moving-lift", type=int, default=0,
                    help="added again to y on the moving animations")
     a.add_argument("--moving", type=int, default=0,
@@ -44,14 +47,24 @@ def main() -> None:
         extra_y = args.moving_lift if moving.search(h) else 0
         frames, blob = fk.animation_blob(game, h)
         vanilla = game.read(blob)
-        name = "misc/link_animetion/kirby/" + blob.split("/")[-1]
+        # Two layouts: the old build overrode the game's own blob in place under
+        # misc/link_animetion/kirby/, the rebuild ships the data beside the header as
+        # objects/gameplay_keep/<header>_Data, which is what Harbour Masters' own
+        # animation mod does. Either is reseated.
         with zipfile.ZipFile(args.archive) as mod:
+            held = set(mod.namelist())
+            name = f"objects/gameplay_keep/{h}_Data"
+            if name not in held:
+                name = "misc/link_animetion/kirby/" + blob.split("/")[-1]
+            if name not in held:
+                continue
             data = bytearray(mod.read(name))
         count = struct.unpack_from("<I", data, 64)[0] // SHORTS
         for f in range(count):
             at = 68 + f * SHORTS * 2
             x, y, z = struct.unpack_from("<3h", vanilla, at)
-            struct.pack_into("<3h", data, at, x, max(-32768, min(32767, y + args.lift + extra_y)),
+            struct.pack_into("<3h", data, at, max(-32768, min(32767, x + args.side)),
+                             max(-32768, min(32767, y + args.lift + extra_y)),
                              max(-32768, min(32767, z + args.forward + extra)))
         replaced[name] = bytes(data)
     tmp = args.archive + ".tmp"
@@ -60,6 +73,7 @@ def main() -> None:
             dst.writestr(info, replaced.get(info.filename, src.read(info.filename)))
     shutil.move(tmp, args.archive)
     print(f"{len(replaced)} riding blobs reseated: lift {args.lift}, forward {args.forward}, "
+          f"side {args.side}, "
           f"moving +{args.moving} forward +{args.moving_lift} up, in {args.archive}")
 
 

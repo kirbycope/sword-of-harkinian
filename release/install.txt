@@ -1,4 +1,4 @@
-Sword Kirby for Ship of Harkinian 1.0.0
+Sword Kirby for Ship of Harkinian 1.1.0
 
 Sword Kirby replaces Link, child and adult, in Ship of Harkinian 9.3.0.
 
@@ -18,12 +18,23 @@ What it does
   blade up beside him and the shield comes up at his side.
 - All 573 player animations are re-posed so his mittens stay on his body, and the pause
   screen's Equipment page is posed to match.
-- Works on Windows (DirectX 11) and macOS (Metal).
+- He sits in the saddle, standing and at a gallop.
+
+New in 1.1.0
+- The model is rebuilt with Harbour Masters' own Fast64 fork, the port's supported
+  tooling, instead of resources written by hand. The archive now ships a real skeleton.
+- Fixes a crash. Every paletted texture was asking the port to load 256 palette entries
+  out of palettes holding four to eight, which killed the game on some scenes, Link's
+  House among them.
+- His hands are his own again in every pose, rather than Link's hands in Kirby's colour.
+- He no longer rides on the horse's neck or its rump.
 
 Known limits
 - Held items other than the sword and shield (bottles, ocarina, slingshot, bow) sit
   where Link's hand is, which on a ball this size is beside the cap.
 - The cap's tail pokes through the sheathed shield from some angles.
+- Built and played on Windows (DirectX 11). 1.0.0 also ran on macOS (Metal); this build
+  has not been checked there yet.
 
 Source and build scripts: https://github.com/kirbycope/sword-of-harkinian
 Kirby and The Legend of Zelda are the property of Nintendo and HAL Laboratory.
