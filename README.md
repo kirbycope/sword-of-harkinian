@@ -37,9 +37,10 @@ hand, and the pause screen's Equipment page posed to match.
 3. Start the game. Nothing to enable; the archives replace Link's model, hands, sheath
    and animations by name, and deleting them puts him back.
 
-The zip also carries `kirby_voice.o2r`, which is optional and gives him Kirby's voice
-from Super Smash Bros. in place of Link's; copy it into the same folder or leave it out.
-Its `README.txt` is the same three steps for anyone who downloads the zip alone.
+`kirby_voice.o2r`, which gives him Kirby's voice from Super Smash Bros. in place of
+Link's, is not in the zip: it is built from your own copy of that ROM with
+`tools/kirby_voice_map.py`, and nothing decoded from a ROM is published here. Copy it
+into the same folder once you have built it.
 
 Build the zip after a build with:
 

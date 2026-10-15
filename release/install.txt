@@ -8,9 +8,10 @@ Install
 2. Start the game. There is nothing to enable.
 3. Delete the two files to get Link back.
 
-Optional
-kirby_voice.o2r gives him Kirby's voice (from Super Smash Bros.) in place of Link's.
-Copy it into the same folder, or leave it out.
+Optional, built by you
+A voice mod gives him Kirby's voice in place of Link's. It is not in this zip because it
+is made from your own Super Smash Bros. ROM: see tools/kirby_voice_map.py in the source
+repository below.
 
 What it does
 - Kirby's body, cap and shoes on Link's skeleton, with his face and blinking eyes.

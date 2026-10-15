@@ -2,7 +2,10 @@
   "name": "SwordKirby",
   "version": "1.0.0",
   "out": "release",
-  "files": ["dist/kirby_child.o2r", "dist/kirby_adult.o2r"],
-  "optional": ["dist/kirby_voice.o2r"],
+  "files": [
+    "dist/kirby_child.o2r",
+    "dist/kirby_adult.o2r"
+  ],
+  "optional": [],
   "readme": "release/install.txt"
 }
