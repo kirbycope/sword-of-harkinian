@@ -60,13 +60,23 @@ and the port reads XML display lists, vertex lists, textures and materials, so t
 mod is generated text plus the animation data. `tools/make_mod.py` writes it straight
 from the rigged Blender file; no ROM build and no retro.
 
-Two things about the port decide the shape of the mod, both found the hard way. Its Metal
-backend crashes on any skeleton limb served from a mod, so nothing here moves a joint;
-every change of pose is done in the animation data instead (`tools/carry_fk.py`), which
-ships under names of its own with only the animation headers overridden. And the port
-names vertex arrays by ROM offset, not by the decompilation's names, so vertex lists ship
-under the archive's names (`tools/check_archive.py` lists anything the game would not
-read). The rest of this file is the long form.
+**This is not the supported way to make a Ship of Harkinian mod, and the port's
+developers have said so.** They maintain their own [Fast64
+fork](https://github.com/HarbourMasters/Fast64) and an [o2r animation
+editor](https://o2r.garrettcox.dev/) that turns Fast64 exports into the format the port
+wants, with their own documentation beside them. Everything here writes the archive by
+hand instead, which is why it ran into two faults nobody else reports (below) and why
+the two issues it raised upstream were closed as not planned. If you are making a mod,
+start with their tooling; read this for how the format works, not as a recommendation.
+
+Two things about the port decide the shape of this mod, both found the hard way, and
+both unconfirmed by the maintainers. On this machine the Metal backend crashes on any
+skeleton limb served from a mod, so nothing here moves a joint; every change of pose is
+done in the animation data instead (`tools/carry_fk.py`), which ships under names of its
+own with only the animation headers overridden. And the port resolves vertex arrays by
+the name its own extraction gives them, the object plus a ROM offset, not by the
+decompilation's names, so vertex lists ship under both (`tools/check_archive.py` lists
+anything the game would not read). The rest of this file is the long form.
 
 ## Where Kirby comes from
 
@@ -110,7 +120,7 @@ decompilation calls `ntsc-1.2`.
 | Tool | Version | Note |
 | --- | --- | --- |
 | Blender | 4.5 | Fast64 supports 3.2 up to 5.1.2 and recommends 4.0 or newer. Blender 5.2 is too new. |
-| Fast64 | upstream `main` | The HarbourMasters fork is Banjo-Kazooie work and has no Ship of Harkinian code. |
+| Fast64 | [HarbourMasters fork](https://github.com/HarbourMasters/Fast64) | Built by the Ship of Harkinian team for this port; use it rather than upstream. This project was built against upstream `main`, which is one of the reasons the port's developers call its workflow unsupported. |
 | retro | 0.2.1 | Builds the o2r archive. |
 | Ship of Harkinian | 9.3.0 | Dewey Alpha, released 6 October 2026. |
 | Ocarina of Time decompilation | zeldaret/oot | Fast64's import and export target. Never committed here. |
@@ -255,7 +265,11 @@ the game's own blob, whatever the bytes: a blob copied unchanged into `alt/` at 
 path reproduces it. So the build never overrides animation data. Each rewritten blob goes
 under `misc/link_animetion/kirby/` with the blob's own name, a path the base game has no twin of, and only
 the small `LinkAnimationHeader` that names it is overridden, with its segment string
-pointing at the copy. Nine bisect runs found it; the decisive pair is written up in Shipwright issue 7402 (https://github.com/HarbourMasters/Shipwright/issues/7402), and the Metal limb crash in issue 7401.
+pointing at the copy. Nine bisect runs found it. Both this and the Metal limb crash were reported upstream
+(Shipwright issues 7401 and 7402) and both were closed as not planned: the maintainers
+could not reproduce either and attribute them to this project's unsupported workflow,
+which writes the archive by hand instead of using their own tooling. The workarounds
+below are what this mod does about them, not accepted port bugs.
 
 ## His feet are Link's foot joints too
 

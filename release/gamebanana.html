@@ -20,6 +20,6 @@ Works on Windows (DirectX 11) and macOS (Metal).<br><br>
 <h3>Source</h3>
 The build scripts, and the whole write-up of how a custom player model gets into this port, are at <a href="https://github.com/kirbycope/sword-of-harkinian">github.com/kirbycope/sword-of-harkinian</a>, with the same files on the <a href="https://github.com/kirbycope/sword-of-harkinian/releases/tag/v1.0.0">1.0.0 release</a>. No ROM, no extracted assets and no ripped models are in that repository; the scripts rebuild the mod from your own copies.<br><br>
 
-Two bugs in the port turned up along the way, both filed upstream and worked around here: <a href="https://github.com/HarbourMasters/Shipwright/issues/7401">Metal crashes on any skeleton limb served from a mod</a>, and <a href="https://github.com/HarbourMasters/Shipwright/issues/7402">animation data served in place of the game's own mis-draws the player</a>.<br><br>
+It writes the o2r by hand rather than using the Ship of Harkinian team's own tooling, which is <a href="https://github.com/HarbourMasters/Fast64">their Fast64 fork</a> and proxy's <a href="https://o2r.garrettcox.dev/">o2r animation editor</a>. If you are making your own mod, start there: it is the supported path and it is what the port's developers maintain.<br><br>
 
 <i>Kirby and The Legend of Zelda are the property of Nintendo and HAL Laboratory.</i><br><br><img src="https://raw.githubusercontent.com/kirbycope/sword-of-harkinian/refs/heads/master/docs/preview/final_idle_front.png">

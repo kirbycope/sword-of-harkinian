@@ -14,7 +14,7 @@ them is committed, and `.gitignore` is set up to keep it that way.
 | Tool | By | Licence | Used for |
 | --- | --- | --- | --- |
 | [Ship of Harkinian](https://github.com/HarbourMasters/Shipwright) | Harbour Masters | MIT | The PC port the mod runs on. Staged to `.toolchain/soh/`, not committed. |
-| [Fast64](https://github.com/Fast-64/fast64) | Fast-64 contributors, forked from kurethedead | MIT | Blender plugin that imports and exports Ocarina of Time skeletons and display lists. Staged to `.toolchain/fast64/`, not committed. |
+| [Fast64](https://github.com/Fast-64/fast64) | Fast-64 contributors, forked from kurethedead | MIT | Blender plugin that imports and exports Ocarina of Time skeletons and display lists. Staged to `.toolchain/fast64/`, not committed. Ship of Harkinian maintains [its own fork](https://github.com/HarbourMasters/Fast64) for this port, which is what its developers recommend; this project used upstream. |
 | [retro](https://github.com/HarbourMasters/retro) | Harbour Masters | MIT | Builds the o2r archive. Staged to `.toolchain/retro/`, not committed. |
 | [Ocarina of Time decompilation](https://github.com/zeldaret/oot) | zeldaret | Non-commercial, see the repository | Fast64's import and export target, and the source of the limb table. Cloned to `decomp/`, not committed. |
 | [Blender](https://www.blender.org/) | Blender Foundation | GPL | Modelling and rendering. |
@@ -46,3 +46,7 @@ what first showed the reader was correct.
 Community guides on the Ship of Harkinian modelling pipeline, by PxExYxTxOxN and Thebes,
 are published on GameBanana and were used to work out which Fast64 and decompilation
 combination the current toolchain expects.
+
+The port's own tooling, which is the supported path and was not used here, is Harbour
+Masters' [Fast64 fork](https://github.com/HarbourMasters/Fast64) and proxy's [o2r
+animation editor](https://o2r.garrettcox.dev/).

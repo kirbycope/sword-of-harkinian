@@ -37,10 +37,10 @@ the sheathed shield from some angles.
 
 SOURCE
 The build scripts, and how a custom player model gets into this port at all, are at
-github.com/kirbycope/sword-of-harkinian. Two port bugs found on the way are filed
-upstream: Metal crashes on any skeleton limb served from a mod (Shipwright issue 7401),
-and animation data served in place of the game's own mis-draws the player (issue 7402);
-the mod works around both.
+github.com/kirbycope/sword-of-harkinian, with the files on the 1.0.0 release. It writes
+the o2r by hand rather than using the Ship of Harkinian team's own tooling, which is
+their Fast64 fork (github.com/HarbourMasters/Fast64) and proxy's o2r animation editor
+(o2r.garrettcox.dev). If you are making your own mod, start there.
 
 Kirby and The Legend of Zelda are the property of Nintendo and HAL Laboratory.
 
