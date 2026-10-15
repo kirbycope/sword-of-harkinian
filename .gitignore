@@ -56,5 +56,14 @@ __pycache__/
 /build/
 
 # Release packages for GameBanana: built from dist/, never committed (they carry the
-# model data the ROM rule covers).
+# model data the ROM rule covers). The text that goes with them is committed.
 /release/
+!/release/install.txt
+!/release/gamebanana.md
+!/release/gamebanana.html
+
+# Trailers and other film: made from the takes under captures/, never committed.
+/docs/*.mp4
+
+# Trailer takes and audio pulled from the packs
+/captures/

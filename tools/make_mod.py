@@ -563,8 +563,14 @@ SHOULDER_FORWARD = 0
 # there and no further, which says the seated pose does not hold his body the same
 # distance below the spine that standing does, so the measurement was a good starting
 # point rather than the answer.
-RIDE_LIFT = 1600          # up; 1790 sat him a little proud of the horse's back
-RIDE_FORWARD = -1250      # toward the horse's head.
+# Where he sits on Epona, measured against the title screen's attract loop (tools/reseat.py
+# rewrites these into a packed archive in a second, so the loop is: reseat, restart, look).
+# Standing and waiting, he sits on the saddle at this offset from Link's own root; the
+# moving animations need much more, because Link leans forward into them and a ball cannot.
+RIDE_LIFT = 1600
+RIDE_FORWARD = -800             # negative is toward the horse's head
+RIDE_MOVING_LIFT = 1300         # extra, on walk, run and jump
+RIDE_MOVING_FORWARD = -4700     # extra, same
                           #
                           # The sign is the opposite of what the jump animation implied.
                           # Link's run-jump drives its root strongly negative in z while
@@ -940,6 +946,7 @@ def main() -> None:
         os.path.abspath(args.game_archive), args.age,
         drop=SHOULDER_DROP, forward=SHOULDER_FORWARD, reach=SWING_REACH, fist=mitten_radius,
         ride_lift=RIDE_LIFT, ride_forward=RIDE_FORWARD,
+        ride_moving_lift=RIDE_MOVING_LIFT, ride_moving_forward=RIDE_MOVING_FORWARD,
         carry=not args.no_shoulders, swing=not args.no_swing,
         ride=(args.age == "adult" and not args.no_ride),
         cache_dir=os.path.abspath("build")))

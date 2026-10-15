@@ -31,14 +31,26 @@ hand, and the pause screen's Equipment page posed to match.
 
 ## Installing the mod
 
-1. Build the archives (below) or take them from a release.
-2. Copy `kirby_child.o2r` and `kirby_adult.o2r` into Ship of Harkinian's `mods` folder,
-   beside its `oot.o2r`.
+1. Download `SwordKirby-1.0.0.zip` from the releases page, or build it yourself (below).
+2. Unzip it and copy `kirby_child.o2r` and `kirby_adult.o2r` into Ship of Harkinian's
+   `mods` folder, the one beside `oot.o2r` that holds `custom_mod_files_go_here.txt`.
 3. Start the game. Nothing to enable; the archives replace Link's model, hands, sheath
-   and animations by name, and removing them puts him back.
+   and animations by name, and deleting them puts him back.
 
-`kirby_voice.o2r` is optional and gives him Kirby's voice from Super Smash Bros.; see
-`tools/kirby_voice_map.py`. It needs your own copy of that ROM to build.
+The zip also carries `kirby_voice.o2r`, which is optional and gives him Kirby's voice
+from Super Smash Bros. in place of Link's; copy it into the same folder or leave it out.
+Its `README.txt` is the same three steps for anyone who downloads the zip alone.
+
+Build the zip after a build with:
+
+```powershell
+python ..\.claude\skills\mod-zip\zip_mod.py --config tools/mod_zip.json
+```
+
+`tools/mod_zip.json` names what goes in it, `release/install.txt` is the README that
+goes with it, and the script refuses to write the zip if an archive is missing or empty
+and prints each file's hash so a stale build cannot ship unnoticed. `release/` is
+git-ignored, like `dist/`.
 
 ## Getting him into the game
 

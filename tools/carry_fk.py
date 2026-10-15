@@ -940,6 +940,11 @@ def _swing_check(archive_path: str, age: str, reach: float, names=()) -> None:
 
 # The riding animations, which also get moved onto the saddle. Only the adult rides.
 RIDE_PREFIX = "gPlayerAnim_link_uma"
+# The riding animations that move. Link leans into a walk, a gallop and a jump and a ball
+# cannot, so these need their own seat offset on top of the standing one, or he reads as
+# sitting on the rump with half the ball inside the horse. Measured on the title screen,
+# where the attract loop gallops past the camera twice in the first twenty seconds.
+RIDE_MOVING = re.compile(r"walk|run|jump")
 
 # The pause screen's Equipment page plays no animation: Player_DrawPause copies one of
 # these fixed joint tables into the skeleton. Each is an Array resource of 24 Vec3s,
@@ -954,11 +959,12 @@ PAUSE_ENTRY = 14
 PAUSE_FIRST = 80
 
 # Bump when the solve changes, so a cached result from older code is not reused.
-CODE_VERSION = 31
+CODE_VERSION = 32
 
 
 def all_animations(archive_path: str, age: str, drop: int, forward: int, reach: float,
-                   ride_lift: int, ride_forward: int, carry: bool = True, swing: bool = True,
+                   ride_lift: int, ride_forward: int, ride_moving_lift: int = 0,
+                   ride_moving_forward: int = 0, carry: bool = True, swing: bool = True,
                    ride: bool = True, cache_dir: str | None = None, log=print,
                    fist: float = 640.0) -> dict[str, bytes]:
     """Every player animation, rewritten so the arms are Kirby's and not Link's.
@@ -977,7 +983,8 @@ def all_animations(archive_path: str, age: str, drop: int, forward: int, reach: 
     key = json.dumps({"age": age, "drop": drop, "forward": forward, "reach": reach, "fist": fist,
                       "foot_reach": FOOT_REACH, "sword_out": SWORD_OUT, "sword_raise": SWORD_RAISE, "sword_drop": SWORD_DROP, "sword_forward": SWORD_FORWARD,
                       "anchor": ANCHOR_FRACTION, "ride_lift": ride_lift,
-                      "ride_forward": ride_forward, "carry": carry, "swing": swing,
+                      "ride_forward": ride_forward, "ride_moving_lift": ride_moving_lift,
+                      "ride_moving_forward": ride_moving_forward, "carry": carry, "swing": swing,
                       "ride": ride, "mittens": MITTENS[age], "code": CODE_VERSION,
                       "archive": os.path.getsize(archive_path)}, sort_keys=True)
     cache = None
@@ -1034,8 +1041,12 @@ def all_animations(archive_path: str, age: str, drop: int, forward: int, reach: 
                 if not header.startswith(RIDE_PREFIX) and FOOT_REACH < 1.0:
                     previous_legs = leg_frame(frame, joints, legs, feet, FOOT_REACH, previous_legs)
                 if is_ride:
-                    frame[1] = max(-32768, min(32767, frame[1] + ride_lift))
-                    frame[2] = max(-32768, min(32767, frame[2] - ride_forward))
+                    lift, forward = ride_lift, ride_forward
+                    if RIDE_MOVING.search(header):
+                        lift += ride_moving_lift
+                        forward -= ride_moving_forward
+                    frame[1] = max(-32768, min(32767, frame[1] + lift))
+                    frame[2] = max(-32768, min(32767, frame[2] - forward))
                 if is_carry:
                     previous = carry_frame(frame, joints, wanted, chains, offset, previous)
                 elif swing and is_sword_animation(header):
