@@ -3,8 +3,8 @@
 Game: The Legend of Zelda: Ocarina of Time (Ship of Harkinian section)
 Category: Skins, Link
 Title: Sword Kirby
-Version: 1.1.0
-File: SwordKirby-1.1.0.zip
+Version: 1.1.1
+File: SwordKirby-1.1.1.zip
 Screenshots: screenshot_idle_front.png (thumbnail), screenshot_guard_front.png,
 screenshot_sword_behind.png, screenshot_sheathed_behind.png, screenshot_equipment.png
 
@@ -12,7 +12,10 @@ screenshot_sword_behind.png, screenshot_sheathed_behind.png, screenshot_equipmen
 
 Sword Kirby replaces Link, child and adult, in Ship of Harkinian 9.3.0.
 
-NEW IN 1.1.0
+NEW SINCE 1.0.0
+His sword hand is right with the sword put away: it was drawing his mitten over the
+game's own closed hand, which showed as a lump hanging off his side.
+
 He is rebuilt with the port's own tooling: the model comes out of Harbour Masters' Fast64
 fork rather than resources written by hand, so the archive ships a real skeleton. A crash
 is fixed, where every paletted texture asked the port to load 256 palette entries out of
@@ -45,7 +48,7 @@ the sheathed shield from some angles.
 
 SOURCE
 The build scripts, and how a custom player model gets into this port at all, are at
-github.com/kirbycope/sword-of-harkinian, with the files on the 1.1.0 release. The model
+github.com/kirbycope/sword-of-harkinian, with the files on the 1.1.1 release. The model
 is built with the Ship of Harkinian team's own tooling: their Fast64 fork
 (github.com/HarbourMasters/Fast64), alongside proxy's o2r animation editor
 (o2r.garrettcox.dev). If you are making your own mod, start there; the repository records

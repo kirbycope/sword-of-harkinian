@@ -188,13 +188,18 @@ def main() -> int:
                     text = re.sub(r'(<LoadVertices Path=")[^"]+(")',
                                   lambda m: m.group(1) + exported[side + "_vtx"] + m.group(2), text)
                     exported[side] = text.encode()
-            bare = re.compile(r"(Left|Right)Hand(Closed|Up|Out)?(Near|Far)DL$")
+            # Only the plain open-hand lists. The closed, raised and held-out variants are
+            # the ones the player code uses when he is carrying, climbing or has just put
+            # the sword away, and the game's own geometry for them is already balled into a
+            # mitten by the vertex overrides. Giving those his whole hand as well draws a
+            # second mitten over the first, which reads as a lump hanging off his side.
+            bare = re.compile(r"(Left|Right)Hand(Near|Far)DL$")
             for path in game.namelist():
                 if not path.startswith(f"{folder}/"):
                     continue
                 name = path.split("/")[-1]
                 match = bare.search(name)
-                if not match or "Holding" in name or "And" in name:
+                if not match or "Holding" in name or "And" in name or "Fist" in name:
                     continue
                 payload = exported.get(match.group(1))
                 if payload is None:

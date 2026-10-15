@@ -39,6 +39,22 @@ if ($Archive -eq 'installed') {
 try {
   Start-Process -FilePath (Join-Path $app 'soh.exe') -WorkingDirectory $app
   Start-Sleep -Seconds 12
+  # The game's own menu is a toggle on Esc and it remembers being open, so a run can start
+  # with it covering the screen. Pressing Esc blind opens it as often as it closes it, so
+  # the window is photographed first and the menu's blue tab strip looked for.
+  Add-Type -AssemblyName System.Drawing
+  $probe = Join-Path $dir '_menu_probe.png'
+  Soh-Shot $probe | Out-Null
+  if (Test-Path $probe) {
+    $bmp = [System.Drawing.Bitmap]::FromFile($probe)
+    $px = $bmp.GetPixel([Math]::Min(145, $bmp.Width - 1), [Math]::Min(107, $bmp.Height - 1))
+    $bmp.Dispose()
+    if ($px.B -gt 150 -and $px.B - $px.R -gt 60) {
+      "the game's menu was open; closing it"
+      Soh-Press Menu -After 900
+    }
+    Remove-Item $probe -Force
+  }
   if ($Routine -eq 'attract') {
     # Left alone, the game runs its own demo, which is the only place the camera gets
     # in front of him for any length of time. Nothing is pressed: the demo is the shot.

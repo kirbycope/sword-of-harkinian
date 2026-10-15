@@ -42,7 +42,7 @@ rather than on the horse's neck or its rump.
 
 ## Installing the mod
 
-1. Download `SwordKirby-1.1.0.zip` from the releases page, or build it yourself (below).
+1. Download `SwordKirby-1.1.1.zip` from the releases page, or build it yourself (below).
 2. Unzip it and copy `kirby_child.o2r` and `kirby_adult.o2r` into Ship of Harkinian's
    `mods` folder, the one beside `oot.o2r` that holds `custom_mod_files_go_here.txt`.
 3. Start the game. Nothing to enable; the archives replace Link's model, hands, sheath

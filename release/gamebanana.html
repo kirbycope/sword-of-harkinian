@@ -2,8 +2,9 @@
 
 Kirby's sword ability is already Link in everything but shape: he wears the green cap and swings a blade. This mod puts the ball underneath. His body, cap and shoes ride Link's skeleton with his face and blinking eyes. The sheathed sword and shield sit on the back of the ball, the drawn sword is held blade up beside him, the shield comes up at his side, and all 573 of Link's animations are re-posed so his mittens stay on his body instead of swinging around on Link's arms. He sits on Epona's saddle rather than her neck or her rump, standing and at a gallop. The pause screen's Equipment page is posed to match. Both ages, every sword and shield.<br><br>
 
-<h3>New in 1.1.0</h3>
+<h3>New since 1.0.0</h3>
 <ul>
+<li><b>His sword hand is right with the sword put away.</b> It was drawing his mitten over the game's own closed hand, which showed as a lump hanging off his side.</li>
 <li><b>He is rebuilt with the port's own tooling.</b> 1.0.0 wrote every display list, vertex list and limb by hand. The model now comes out of <a href="https://github.com/HarbourMasters/Fast64">Harbour Masters' Fast64 fork</a>, which imports Link straight out of the game's own oot.o2r and exports the resources the port reads, so the archive ships a real skeleton.</li>
 <li><b>A crash is fixed.</b> Every paletted texture was asking the port to load 256 palette entries out of palettes holding four to eight colours, which killed the game in Link's House among other places.</li>
 <li><b>His hands are his own again</b> in every pose, instead of Link's hands in Kirby's colour.</li>
@@ -25,7 +26,7 @@ Kirby's sword ability is already Link in everything but shape: he wears the gree
 <li>Built and played on Windows (DirectX 11). 1.0.0 also ran on macOS (Metal); this build has not been checked there yet.</li></ul>
 
 <h3>Source</h3>
-The build scripts, and the whole write-up of how a custom player model gets into this port, are at <a href="https://github.com/kirbycope/sword-of-harkinian">github.com/kirbycope/sword-of-harkinian</a>, with the same files on the <a href="https://github.com/kirbycope/sword-of-harkinian/releases/tag/v1.1.0">1.1.0 release</a>. No ROM, no extracted assets and no ripped models are in that repository; the scripts rebuild the mod from your own copies.<br><br>
+The build scripts, and the whole write-up of how a custom player model gets into this port, are at <a href="https://github.com/kirbycope/sword-of-harkinian">github.com/kirbycope/sword-of-harkinian</a>, with the same files on the <a href="https://github.com/kirbycope/sword-of-harkinian/releases/tag/v1.1.1">1.1.1 release</a>. No ROM, no extracted assets and no ripped models are in that repository; the scripts rebuild the mod from your own copies.<br><br>
 
 If you are making your own mod, start with the port's own tooling: <a href="https://github.com/HarbourMasters/Fast64">their Fast64 fork</a> and proxy's <a href="https://o2r.garrettcox.dev/">o2r animation editor</a>. The repository above records the four settings that fork gets wrong unless you set them, each of which fails in a way that looks like anything but a setting.<br><br>
 

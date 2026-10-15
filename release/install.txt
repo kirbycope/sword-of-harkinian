@@ -1,4 +1,4 @@
-Sword Kirby for Ship of Harkinian 1.1.0
+Sword Kirby for Ship of Harkinian 1.1.1
 
 Sword Kirby replaces Link, child and adult, in Ship of Harkinian 9.3.0.
 
@@ -19,6 +19,10 @@ What it does
 - All 573 player animations are re-posed so his mittens stay on his body, and the pause
   screen's Equipment page is posed to match.
 - He sits in the saddle, standing and at a gallop.
+
+New in 1.1.1
+- His sword hand no longer draws a second mitten over the game's own closed hand, which
+  showed as a lump hanging off his side with the sword put away.
 
 New in 1.1.0
 - The model is rebuilt with Harbour Masters' own Fast64 fork, the port's supported
