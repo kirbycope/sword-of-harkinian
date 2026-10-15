@@ -321,7 +321,6 @@ point at the copy. That is the layout this mod uses now. It was filed upstream a
 7402 before that was understood, and closed as not planned, correctly.
 
 ## His feet are Link's foot joints too
-## His feet are Link's foot joints too
 
 The shoes ride Link's foot limbs, which swing on his leg arcs, far wider than Kirby is:
 a slash kicked a shoe up to his ear and a run threw one through his back. Every
