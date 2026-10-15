@@ -57,7 +57,9 @@ __pycache__/
 
 # Release packages for GameBanana: built from dist/, never committed (they carry the
 # model data the ROM rule covers). The text that goes with them is committed.
-/release/
+# (the pattern excludes the contents, not the folder: git cannot re-include a file
+# inside an excluded directory)
+/release/*
 !/release/install.txt
 !/release/gamebanana.md
 !/release/gamebanana.html

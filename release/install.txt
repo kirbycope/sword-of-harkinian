@@ -1,0 +1,29 @@
+Sword Kirby for Ship of Harkinian 1.0.0
+
+Sword Kirby replaces Link, child and adult, in Ship of Harkinian 9.3.0.
+
+Install
+1. Copy kirby_child.o2r and kirby_adult.o2r into Ship of Harkinian's "mods" folder,
+   the one beside oot.o2r that holds custom_mod_files_go_here.txt.
+2. Start the game. There is nothing to enable.
+3. Delete the two files to get Link back.
+
+Optional
+kirby_voice.o2r gives him Kirby's voice (from Super Smash Bros.) in place of Link's.
+Copy it into the same folder, or leave it out.
+
+What it does
+- Kirby's body, cap and shoes on Link's skeleton, with his face and blinking eyes.
+- The sheathed sword and shield ride on the back of the ball; the drawn sword is held
+  blade up beside him and the shield comes up at his side.
+- All 573 player animations are re-posed so his mittens stay on his body, and the pause
+  screen's Equipment page is posed to match.
+- Works on Windows (DirectX 11) and macOS (Metal).
+
+Known limits
+- Held items other than the sword and shield (bottles, ocarina, slingshot, bow) sit
+  where Link's hand is, which on a ball this size is beside the cap.
+- The cap's tail pokes through the sheathed shield from some angles.
+
+Source and build scripts: https://github.com/kirbycope/sword-of-harkinian
+Kirby and The Legend of Zelda are the property of Nintendo and HAL Laboratory.
